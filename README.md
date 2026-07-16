@@ -1,0 +1,115 @@
+# Claude Usage Monitor
+
+A native macOS menu-bar app (and CLI) that shows your current **Claude usage** — token
+budget remaining, plan, and reset time — by securely reusing your existing **Claude
+Code** login session. No manual API key required.
+
+> **Status: early / foundation.** The verified data layer + a working `MenuBarExtra`
+> app + a `claude-monitor` CLI are implemented and building. Widgets, charts, SwiftData
+> history, notifications, exporters (Prometheus/REST), and packaging are on the roadmap
+> below. See [`docs/AUTH.md`](docs/AUTH.md) for how usage data is obtained.
+
+## How it works
+
+```
+Keychain ("Claude Code-credentials")  ──▶  OAuthCredentials
+                                             │  Bearer token
+~/.claude.json (oauthAccount) ─▶ AccountInfo │
+                                             ▼
+                             GET api.anthropic.com/api/oauth/usage
+                                             │
+                                             ▼
+                                       UsageResponse
+                                             │
+                    AccountInfo + UsageResponse ─▶ UsageSnapshot
+                                             │
+                        ┌────────────────────┼────────────────────┐
+                        ▼                     ▼                    ▼
+                  MenuBar app            claude-monitor        (widgets, …)
+```
+
+- **Local & private.** The OAuth token is read from your Keychain, used for a single
+  authenticated GET, and never stored or transmitted anywhere else. No telemetry.
+- **Reverse-engineered, documented, and defensive.** The usage endpoint is undocumented;
+  every field is decoded tolerantly with a response-header fallback. See `docs/AUTH.md`.
+
+## Requirements
+
+- macOS 14+ (built/tested on macOS 26)
+- Swift 6 toolchain (full **Xcode** required to run the test suites; the app and CLI
+  build with Command-Line Tools alone)
+- A working **Claude Code** login (`claude` signed in at least once)
+
+## Build & run
+
+```bash
+# CLI
+swift build --product claude-monitor
+swift run claude-monitor              # live usage (prompts for Keychain access once)
+swift run claude-monitor -- --json    # machine-readable
+swift run claude-monitor -- --selftest  # offline logic checks (no network, no Keychain)
+
+# Menu-bar app
+swift run ClaudeUsageMonitor
+```
+
+On first run macOS asks to authorize reading the `Claude Code-credentials` Keychain
+item — click **Always Allow**. (Why: the item's ACL is owned by Claude Code. Details in
+`docs/AUTH.md`.)
+
+## Project layout
+
+```
+Sources/
+  ClaudeUsageCore/         # library: the reusable, testable data layer
+    Models/                #   RateLimitWindow, UsageResponse, AccountInfo, UsageSnapshot
+    Auth/                  #   OAuthCredentials, KeychainCredentialStore
+    Networking/            #   UsageAPIClient  (GET /api/oauth/usage)
+    Account/               #   LocalAccountReader (~/.claude.json)
+    Repository/            #   UsageRepository  (orchestration seam)
+  ClaudeUsageMonitorApp/   # SwiftUI MenuBarExtra app (accessory / no Dock icon)
+  ClaudeMonitorCLI/        # `claude-monitor` CLI
+Tests/
+  ClaudeUsageCoreTests/    # Swift Testing suites (decoding + networking via URLProtocol)
+docs/AUTH.md               # reverse-engineering & auth documentation
+```
+
+## Architecture
+
+- **Swift 6** language mode, strict concurrency (`Sendable` models, `actor` client &
+  repository, `@MainActor` view model).
+- **MVVM + Repository**: `UsageRepositoryProtocol` is the single seam the UI, CLI, and
+  (future) exporters depend on — trivially mockable.
+- **Graceful degradation**: offline / expired-token / rate-limit / schema-drift each map
+  to a specific `APIError`/`CredentialError`; the menu bar retains the last good snapshot.
+
+## Roadmap
+
+| Phase | Item | State |
+|------:|------|:-----:|
+| 1–3 | Auth + usage-API research & validation | ✅ done (`docs/AUTH.md`) |
+| 5–7 | Core data layer + Menu Bar app | ✅ done (this slice) |
+| 10 | `claude-monitor` CLI (`--json`, `--selftest`) | ✅ basic; `--watch/--csv/--history` next |
+| 4 | OAuth token **refresh** flow | ⏳ next |
+| 6 | SwiftData history store + prediction | ⏳ |
+| 8–9 | WidgetKit widgets + Swift Charts | ⏳ |
+| 11–12 | Prometheus exporter + local REST API | ⏳ |
+| 13–16 | Raycast / Alfred / Shortcuts / Notifications | ⏳ |
+| 18–20 | Xcode app target, Sparkle, DMG, Homebrew, CI, signing | ⏳ |
+
+## Security & privacy
+
+Secrets live only in the Keychain. Nothing is written back, no analytics, no network
+calls except the single authenticated GET to `api.anthropic.com`. See `docs/AUTH.md`.
+
+## Disclaimer
+
+This is an **unofficial** project and is **not affiliated with, endorsed by, or
+supported by Anthropic**. It reads your own local Claude Code session and calls an
+**undocumented** endpoint (`/api/oauth/usage`) that may change or break at any time. It
+stores and transmits no credentials beyond the single authenticated request that Claude
+Code itself makes. Use at your own risk. "Claude" is a trademark of Anthropic.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
