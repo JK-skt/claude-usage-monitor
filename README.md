@@ -70,8 +70,15 @@ Then drag the app to **Applications** (or open the DMG). The icon is generated b
 `scripts/make-icns.sh` (pure CoreGraphics — a coral usage-gauge on a graphite squircle).
 
 > Ad-hoc signed builds are unnotarized; Gatekeeper shows a first-open warning
-> (right-click → Open). A **Developer ID** signature + notarization removes this and is
-> part of the release pipeline.
+> (right-click → Open). For a clean, warning-free build, sign with a **Developer ID**
+> certificate and notarize — the full pipeline is scripted:
+>
+> ```bash
+> SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" scripts/release.sh
+> ```
+>
+> See [`docs/SIGNING.md`](docs/SIGNING.md) for setup, and
+> `.github/workflows/release.yml` for the automated signed+notarized release on tag push.
 
 ## Launch at login
 
@@ -137,7 +144,8 @@ docs/AUTH.md               # reverse-engineering & auth documentation
 | 11–12 | Prometheus exporter + local REST API | ⏳ |
 | 13–16 | Raycast / Alfred / Shortcuts / Notifications | ⏳ |
 | 20 | `.app` bundle + generated icon + DMG + **Launch at login** (Settings/SMAppService) | ✅ done |
-| 20 | Developer ID signing + notarization, Sparkle auto-update, Homebrew cask, CI | ⏳ |
+| 20 | Developer ID signing + notarization pipeline + CI (build/test + release on tag) | ✅ scripted (needs your Developer ID cert) |
+| 20 | Sparkle auto-update, Homebrew cask | ⏳ |
 
 ## Security & privacy
 

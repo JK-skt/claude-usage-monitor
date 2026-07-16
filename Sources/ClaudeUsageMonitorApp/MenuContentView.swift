@@ -13,14 +13,18 @@ struct MenuContentView: View {
     ]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             header
             Divider()
 
             switch model.state {
             case .loading:
-                Label("Loading usage…", systemImage: "hourglass")
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Loading usage…").foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, 8)
             case .failed(let message):
                 failure(message)
             case .loaded(let snapshot):
@@ -28,88 +32,108 @@ struct MenuContentView: View {
             }
 
             Divider()
-            controls
+            footer
         }
         .padding(14)
-        .frame(width: 340)
+        .frame(width: 320)
+        .onAppear {
+            model.refreshIfStale()
+            loginItem.refresh()
+        }
     }
 
-    // MARK: Sections
+    // MARK: Header
 
     private var header: some View {
-        HStack {
+        HStack(spacing: 8) {
             Image(systemName: "gauge.with.dots.needle.67percent")
+                .foregroundStyle(.orange)
             Text("Claude Usage").font(.headline)
             Spacer()
-            if let updated = model.lastUpdated {
-                Text(Formatting.time(updated))
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+            if model.isRefreshing {
+                ProgressView().controlSize(.mini)
+            } else if let updated = model.lastUpdated {
+                Text(agoText(updated))
+                    .font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
             }
         }
     }
 
-    private func loaded(_ s: UsageSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text(s.planName).font(.subheadline).bold()
-                Spacer()
-                Text("\(s.percentRemaining)% left")
-                    .font(.subheadline)
-                    .foregroundStyle(color(s.severity))
-            }
+    // MARK: Loaded
 
-            // Every window — session, weekly, and per-model (incl. Fable).
-            ForEach(s.metrics) { metric in
-                metricRow(metric, detailed: model.detailed)
+    private func loaded(_ s: UsageSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            hero(s)
+
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(s.metrics) { metricRow($0) }
             }
 
             if model.detailed {
                 Divider()
                 detailSection(s)
-            } else if let reset = s.nextReset {
-                row("Next reset", Formatting.relative(reset))
             }
         }
     }
 
-    @ViewBuilder
-    private func metricRow(_ m: UsageMetric, detailed: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
+    private func hero(_ s: UsageSnapshot) -> some View {
+        HStack(spacing: 14) {
+            ZStack {
+                GaugeRing(fraction: Double(s.percentRemaining) / 100.0,
+                          color: color(s.severity), lineWidth: 8)
+                    .frame(width: 62, height: 62)
+                VStack(spacing: -1) {
+                    Text("\(s.percentRemaining)")
+                        .font(.system(size: 21, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                    Text("% left").font(.system(size: 9)).foregroundStyle(.secondary)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(s.planName).font(.headline)
+                if let reset = s.nextReset {
+                    Label(Formatting.relative(reset), systemImage: "clock.arrow.circlepath")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                if model.lastError != nil {
+                    Label("Showing last known values", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption2).foregroundStyle(.orange)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func metricRow(_ m: UsageMetric) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 if m.modelName != nil {
                     Image(systemName: "cpu").font(.caption2).foregroundStyle(.secondary)
                 }
                 Text(m.label).font(.caption).foregroundStyle(.secondary)
-                if m.isActive {
-                    Text("active")
-                        .font(.system(size: 9, weight: .semibold))
-                        .padding(.horizontal, 4).padding(.vertical, 1)
-                        .background(Color.accentColor.opacity(0.18), in: Capsule())
-                        .foregroundStyle(Color.accentColor)
-                }
+                if m.isActive { ActiveBadge() }
                 Spacer()
-                Text("\(m.percentUsed)% used").font(.caption).monospacedDigit()
+                Text("\(m.percentUsed)%")
+                    .font(.caption).monospacedDigit()
+                    .foregroundStyle(color(forFraction: m.fractionUsed))
             }
-            ProgressView(value: m.fractionUsed).tint(color(forFraction: m.fractionUsed))
-            if detailed, let reset = m.resetsAt {
-                Text("resets \(Formatting.relative(reset))  ·  \(Formatting.absolute(reset))")
+            UsageBar(fraction: m.fractionUsed, color: color(forFraction: m.fractionUsed))
+            if model.detailed, let reset = m.resetsAt {
+                Text("resets \(Formatting.relative(reset))")
                     .font(.caption2).foregroundStyle(.tertiary)
             }
         }
     }
 
-    /// The full "show everything" block, shown when the detailed option is on.
     @ViewBuilder
     private func detailSection(_ s: UsageSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("DETAILS").font(.system(size: 9, weight: .bold)).foregroundStyle(.tertiary)
-
             if let reset = s.nextReset {
                 row("Next reset", "\(Formatting.relative(reset))  ·  \(Formatting.absolute(reset))")
             }
             row("Severity", s.severity.rawValue.capitalized)
-
             if let a = s.account {
                 if let org = a.organizationName { row("Organization", org) }
                 if let name = a.displayName { row("Account", name) }
@@ -118,7 +142,6 @@ struct MenuContentView: View {
                 if let billing = a.billingType { row("Billing", billing) }
                 if let extra = a.hasExtraUsageEnabled { row("Extra usage", extra ? "on" : "off") }
             }
-
             if let overage = s.usage.overage, let status = overage.status {
                 row("Overage", status)
             }
@@ -135,20 +158,42 @@ struct MenuContentView: View {
         }
     }
 
-    private var controls: some View {
-        VStack(spacing: 4) {
-            button("Refresh", "arrow.clockwise") { Task { await model.refresh() } }
-            button("Open Claude", "safari") { open("https://claude.ai") }
-            button("Copy Usage", "doc.on.doc") { copyUsage() }
+    // MARK: Footer
 
-            // Inline settings — always reliable in the popover (no separate window).
-            button("Settings", showSettings ? "chevron.down" : "chevron.right") {
-                withAnimation(.easeInOut(duration: 0.15)) { showSettings.toggle() }
+    private var footer: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                chip("Refresh", "arrow.clockwise") { Task { await model.refresh() } }
+                chip("Copy", "doc.on.doc") { copyUsage() }
+                chip("Claude", "safari") { open("https://claude.ai") }
             }
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) { showSettings.toggle() }
+            } label: {
+                HStack {
+                    Image(systemName: "gearshape").frame(width: 16)
+                    Text("Settings")
+                    Spacer()
+                    Image(systemName: showSettings ? "chevron.up" : "chevron.down")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
             if showSettings { settingsSection }
 
-            Divider().padding(.vertical, 2)
-            button("Quit", "power") { NSApp.terminate(nil) }
+            Divider()
+            Button { NSApp.terminate(nil) } label: {
+                HStack {
+                    Image(systemName: "power").frame(width: 16)
+                    Text("Quit")
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
         .onAppear { loginItem.refresh() }
     }
@@ -198,16 +243,24 @@ struct MenuContentView: View {
         }
     }
 
-    private func button(_ title: String, _ icon: String, action: @escaping () -> Void) -> some View {
+    private func chip(_ title: String, _ icon: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack {
-                Image(systemName: icon).frame(width: 16)
-                Text(title)
-                Spacer()
+            VStack(spacing: 3) {
+                Image(systemName: icon)
+                Text(title).font(.caption2)
             }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.bordered)
+    }
+
+    private func agoText(_ date: Date) -> String {
+        let secs = Int(Date().timeIntervalSince(date))
+        if secs < 60 { return "just now" }
+        if secs < 3600 { return "\(secs / 60)m ago" }
+        return "\(secs / 3600)h ago"
     }
 
     private func open(_ urlString: String) {
@@ -218,9 +271,7 @@ struct MenuContentView: View {
     private func copyUsage() {
         guard case .loaded(let s) = model.state else { return }
         var lines = ["Plan: \(s.planName)", "Remaining: \(s.percentRemaining)%"]
-        for m in s.metrics {
-            lines.append("\(m.label): \(m.percentUsed)% used")
-        }
+        for m in s.metrics { lines.append("\(m.label): \(m.percentUsed)% used") }
         lines.append("Next reset: \(Formatting.absolute(s.nextReset))")
         lines.append("Captured: \(Formatting.absolute(s.capturedAt))")
         NSPasteboard.general.clearContents()

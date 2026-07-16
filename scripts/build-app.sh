@@ -35,13 +35,26 @@ sed -e "s/@VERSION@/$VERSION/" -e "s/@BUILD@/$BUILD/" \
     "$REPO_DIR/packaging/Info.plist" > "$CONTENTS/Info.plist"
 printf 'APPL????' > "$CONTENTS/PkgInfo"
 
-echo "› Code signing (identity: $SIGN_IDENTITY)…"
-codesign --force --sign "$SIGN_IDENTITY" \
-    --identifier com.jhkoo.claude-usage-monitor \
-    --timestamp=none "$CONTENTS/MacOS/$APP_NAME"
-codesign --force --sign "$SIGN_IDENTITY" \
-    --identifier com.jhkoo.claude-usage-monitor \
-    --timestamp=none "$APP"
-codesign --verify --deep --strict --verbose=1 "$APP" 2>&1 | sed 's/^/  /' || true
+# Signing flags differ for ad-hoc vs Developer ID (notarization needs hardened
+# runtime + a secure timestamp).
+BUNDLE_ID="com.jhkoo.claude-usage-monitor"
+if [ "$SIGN_IDENTITY" = "-" ]; then
+    echo "› Code signing (ad-hoc — unnotarized; Gatekeeper will warn)…"
+    CS_FLAGS=(--force --sign - --identifier "$BUNDLE_ID" --timestamp=none)
+else
+    if ! security find-identity -v -p codesigning | grep -qF "$SIGN_IDENTITY"; then
+        echo "✗ Signing identity not found in keychain: $SIGN_IDENTITY" >&2
+        echo "  Available code-signing identities:" >&2
+        security find-identity -v -p codesigning >&2
+        exit 1
+    fi
+    echo "› Code signing (Developer ID + hardened runtime): $SIGN_IDENTITY"
+    CS_FLAGS=(--force --options runtime --timestamp --sign "$SIGN_IDENTITY" --identifier "$BUNDLE_ID")
+fi
+
+# Sign inner Mach-O first, then the bundle.
+codesign "${CS_FLAGS[@]}" "$CONTENTS/MacOS/$APP_NAME"
+codesign "${CS_FLAGS[@]}" "$APP"
+codesign --verify --strict --verbose=2 "$APP" 2>&1 | sed 's/^/  /' || true
 
 echo "✓ Built $APP"

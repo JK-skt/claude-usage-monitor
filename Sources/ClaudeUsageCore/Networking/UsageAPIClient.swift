@@ -49,15 +49,42 @@ public actor UsageAPIClient {
     private let baseURL: URL
     private let session: URLSession
     private let betaHeader: String
+    private let decoder: JSONDecoder
 
     public init(
         baseURL: URL = UsageAPIClient.defaultBaseURL,
-        session: URLSession = .shared,
+        session: URLSession? = nil,
         betaHeader: String = "oauth-2025-04-20"
     ) {
         self.baseURL = baseURL
-        self.session = session
         self.betaHeader = betaHeader
+        self.decoder = UsageAPIClient.makeDecoder() // built once, reused per fetch
+
+        if let session {
+            self.session = session
+        } else {
+            // Dedicated, lightweight session: usage must be fresh (no caching), fail fast,
+            // and never hold more than one connection for this low-traffic endpoint.
+            let config = URLSessionConfiguration.ephemeral
+            config.requestCachePolicy = .reloadIgnoringLocalCacheData
+            config.urlCache = nil
+            config.timeoutIntervalForRequest = 15
+            config.timeoutIntervalForResource = 30
+            config.httpMaximumConnectionsPerHost = 1
+            config.waitsForConnectivity = false
+            self.session = URLSession(configuration: config)
+        }
+    }
+
+    private func makeRequest(accessToken: String) -> URLRequest {
+        var request = URLRequest(url: baseURL.appendingPathComponent("api/oauth/usage"))
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue(Self.anthropicVersion, forHTTPHeaderField: "anthropic-version")
+        request.setValue(betaHeader, forHTTPHeaderField: "anthropic-beta")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = 15
+        return request
     }
 
     /// Parses either a numeric epoch (seconds or milliseconds) or an ISO-8601 string,
@@ -91,31 +118,18 @@ public actor UsageAPIClient {
 
     /// Returns the undecoded response body — for diagnostics / schema discovery.
     public func fetchRawUsage(accessToken: String) async throws -> Data {
-        var request = URLRequest(url: baseURL.appendingPathComponent("api/oauth/usage"))
-        request.httpMethod = "GET"
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue(Self.anthropicVersion, forHTTPHeaderField: "anthropic-version")
-        request.setValue(betaHeader, forHTTPHeaderField: "anthropic-beta")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.timeoutInterval = 15
-        let (data, _) = try await session.data(for: request)
+        let (data, _) = try await session.data(for: makeRequest(accessToken: accessToken))
         return data
     }
 
     public func fetchUsage(accessToken: String) async throws -> Result {
-        var request = URLRequest(url: baseURL.appendingPathComponent("api/oauth/usage"))
-        request.httpMethod = "GET"
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue(Self.anthropicVersion, forHTTPHeaderField: "anthropic-version")
-        request.setValue(betaHeader, forHTTPHeaderField: "anthropic-beta")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.timeoutInterval = 15
-
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await session.data(for: request)
-        } catch let error as URLError where error.code == .notConnectedToInternet {
+            (data, response) = try await session.data(for: makeRequest(accessToken: accessToken))
+        } catch let error as URLError where error.code == .notConnectedToInternet
+                                        || error.code == .networkConnectionLost
+                                        || error.code == .cannotConnectToHost {
             throw APIError.offline
         } catch {
             throw APIError.transport(error)
@@ -129,7 +143,7 @@ public actor UsageAPIClient {
         case 200..<300:
             let headers = Self.parseHeaders(http)
             do {
-                let usage = try Self.makeDecoder().decode(UsageResponse.self, from: data)
+                let usage = try decoder.decode(UsageResponse.self, from: data)
                 return Result(usage: usage, headers: headers)
             } catch {
                 throw APIError.decoding(error)
