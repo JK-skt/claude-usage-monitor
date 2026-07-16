@@ -12,7 +12,17 @@ final class MenuBarViewModel: ObservableObject {
 
     @Published private(set) var state: State = .loading
     @Published private(set) var lastUpdated: Date?
-    @Published var refreshInterval: TimeInterval = 300 // 5 minutes default
+
+    /// Poll cadence in seconds. Persisted; changing it re-arms the poller immediately.
+    @Published var refreshInterval: TimeInterval {
+        didSet {
+            guard refreshInterval != oldValue else { return }
+            UserDefaults.standard.set(refreshInterval, forKey: Self.intervalKey)
+            start()
+        }
+    }
+
+    private static let intervalKey = "refresh.interval"
 
     /// When true, the status menu shows every window (session, weekly, each model such
     /// as Fable) plus account/spend details at once. Persisted across launches.
@@ -28,6 +38,8 @@ final class MenuBarViewModel: ObservableObject {
     init(repository: UsageRepositoryProtocol = UsageRepository()) {
         self.repository = repository
         self.detailed = UserDefaults.standard.bool(forKey: Self.detailedKey)
+        let saved = UserDefaults.standard.double(forKey: Self.intervalKey)
+        self.refreshInterval = saved > 0 ? saved : 300 // 5 minutes default
         start()
     }
 

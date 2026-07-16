@@ -1,8 +1,41 @@
 import SwiftUI
 import AppKit
+import ServiceManagement
 import ClaudeUsageCore
 
+/// Entry point. Intercepts a few CLI flags (used by scripts / for headless testing of
+/// the login-item registration) before handing off to the SwiftUI app.
 @main
+enum Entry {
+    static func main() {
+        let args = CommandLine.arguments
+        if args.contains("--login-status") {
+            print(loginStatusString()); exit(0)
+        }
+        if args.contains("--register-login") {
+            do { try SMAppService.mainApp.register(); print("registered: \(loginStatusString())") }
+            catch { FileHandle.standardError.write(Data("register failed: \(error)\n".utf8)); exit(1) }
+            exit(0)
+        }
+        if args.contains("--unregister-login") {
+            do { try SMAppService.mainApp.unregister(); print("unregistered: \(loginStatusString())") }
+            catch { FileHandle.standardError.write(Data("unregister failed: \(error)\n".utf8)); exit(1) }
+            exit(0)
+        }
+        ClaudeUsageMonitorApp.main()
+    }
+
+    static func loginStatusString() -> String {
+        switch SMAppService.mainApp.status {
+        case .notRegistered: return "notRegistered"
+        case .enabled: return "enabled"
+        case .requiresApproval: return "requiresApproval"
+        case .notFound: return "notFound"
+        @unknown default: return "unknown"
+        }
+    }
+}
+
 struct ClaudeUsageMonitorApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var model = MenuBarViewModel()

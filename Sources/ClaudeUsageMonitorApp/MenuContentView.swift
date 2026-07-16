@@ -4,6 +4,13 @@ import ClaudeUsageCore
 
 struct MenuContentView: View {
     @ObservedObject var model: MenuBarViewModel
+    @StateObject private var loginItem = LoginItemManager()
+    @State private var showSettings = false
+    @State private var loginError: String?
+
+    private let intervals: [(String, TimeInterval)] = [
+        ("1m", 60), ("5m", 300), ("10m", 600), ("15m", 900), ("30m", 1800),
+    ]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -130,23 +137,55 @@ struct MenuContentView: View {
 
     private var controls: some View {
         VStack(spacing: 4) {
-            Toggle(isOn: $model.detailed) {
-                HStack {
-                    Image(systemName: "list.bullet.rectangle").frame(width: 16)
-                    Text("Show all details")
-                    Spacer()
-                }
-            }
-            .toggleStyle(.switch)
-            .controlSize(.small)
-
-            Divider().padding(.vertical, 2)
             button("Refresh", "arrow.clockwise") { Task { await model.refresh() } }
             button("Open Claude", "safari") { open("https://claude.ai") }
             button("Copy Usage", "doc.on.doc") { copyUsage() }
+
+            // Inline settings — always reliable in the popover (no separate window).
+            button("Settings", showSettings ? "chevron.down" : "chevron.right") {
+                withAnimation(.easeInOut(duration: 0.15)) { showSettings.toggle() }
+            }
+            if showSettings { settingsSection }
+
             Divider().padding(.vertical, 2)
             button("Quit", "power") { NSApp.terminate(nil) }
         }
+        .onAppear { loginItem.refresh() }
+    }
+
+    private var settingsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle(isOn: Binding(
+                get: { loginItem.isEnabled },
+                set: { loginError = loginItem.setEnabled($0) }
+            )) { Text("Launch at login") }
+                .toggleStyle(.switch).controlSize(.small)
+
+            if loginItem.needsApproval {
+                Text("Approve in System Settings › Login Items")
+                    .font(.caption2).foregroundStyle(.orange)
+            }
+            if let loginError {
+                Text(loginError).font(.caption2).foregroundStyle(.red)
+            }
+
+            Toggle(isOn: $model.detailed) { Text("Show all details") }
+                .toggleStyle(.switch).controlSize(.small)
+
+            HStack {
+                Text("Refresh every").font(.callout)
+                Spacer()
+                Picker("", selection: $model.refreshInterval) {
+                    ForEach(intervals, id: \.1) { label, value in
+                        Text(label).tag(value)
+                    }
+                }
+                .labelsHidden().controlSize(.small).frame(width: 90)
+            }
+        }
+        .padding(.leading, 24)
+        .padding(.trailing, 4)
+        .padding(.vertical, 2)
     }
 
     // MARK: Helpers
