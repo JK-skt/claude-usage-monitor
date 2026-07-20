@@ -25,16 +25,34 @@ public struct RateLimitWindow: Codable, Sendable, Hashable {
     /// Timestamp at which this window's quota resets.
     public let resetsAt: Date?
 
-    public init(utilization: Double?, remaining: Double?, resetsAt: Date?) {
+    /// USD already spent in this window under pay-as-you-go billing, when the server
+    /// reports it (`used_dollars`). Present for metered windows such as Fable.
+    public let usedDollars: Double?
+
+    /// USD ceiling / cap for this window (`limit_dollars`), when set.
+    public let limitDollars: Double?
+
+    /// USD budget still available (`remaining_dollars`), when set.
+    public let remainingDollars: Double?
+
+    public init(utilization: Double?, remaining: Double?, resetsAt: Date?,
+                usedDollars: Double? = nil, limitDollars: Double? = nil,
+                remainingDollars: Double? = nil) {
         self.utilization = utilization
         self.remaining = remaining
         self.resetsAt = resetsAt
+        self.usedDollars = usedDollars
+        self.limitDollars = limitDollars
+        self.remainingDollars = remainingDollars
     }
 
     enum CodingKeys: String, CodingKey {
         case utilization
         case remaining
         case resetsAt = "resets_at"
+        case usedDollars = "used_dollars"
+        case limitDollars = "limit_dollars"
+        case remainingDollars = "remaining_dollars"
     }
 
     /// Utilization normalized to `0...1`. The API sends an integer percentage (0...100).

@@ -109,21 +109,43 @@ struct MenuContentView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 if m.modelName != nil {
-                    Image(systemName: "cpu").font(.caption2).foregroundStyle(.secondary)
+                    Image(systemName: m.isMetered ? "dollarsign.circle" : "cpu")
+                        .font(.caption2).foregroundStyle(.secondary)
                 }
                 Text(m.label).font(.caption).foregroundStyle(.secondary)
                 if m.isActive { ActiveBadge() }
                 Spacer()
-                Text("\(m.percentUsed)%")
-                    .font(.caption).monospacedDigit()
-                    .foregroundStyle(color(forFraction: m.fractionUsed))
+                if m.isMetered {
+                    Text(m.spendText ?? "$0.00")
+                        .font(.caption).monospacedDigit().foregroundStyle(.primary)
+                } else {
+                    Text("\(m.percentUsed)%")
+                        .font(.caption).monospacedDigit()
+                        .foregroundStyle(color(forFraction: m.fractionUsed))
+                }
             }
-            UsageBar(fraction: m.fractionUsed, color: color(forFraction: m.fractionUsed))
+            if m.isMetered {
+                // Pay-as-you-go: no quota bar. Show the per-token rate instead.
+                if let p = m.pricing {
+                    Text("$\(rate(p.inputPerMillion))/M in · $\(rate(p.outputPerMillion))/M out")
+                        .font(.caption2).foregroundStyle(.tertiary)
+                }
+            } else {
+                UsageBar(fraction: m.fractionUsed, color: color(forFraction: m.fractionUsed))
+            }
             if model.detailed, let reset = m.resetsAt {
                 Text("resets \(Formatting.relative(reset))")
                     .font(.caption2).foregroundStyle(.tertiary)
             }
         }
+    }
+
+    private func rate(_ d: Decimal) -> String {
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        f.minimumFractionDigits = 0
+        f.maximumFractionDigits = 2
+        return f.string(from: NSDecimalNumber(decimal: d)) ?? "\(d)"
     }
 
     @ViewBuilder
@@ -271,7 +293,16 @@ struct MenuContentView: View {
     private func copyUsage() {
         guard case .loaded(let s) = model.state else { return }
         var lines = ["Plan: \(s.planName)", "Remaining: \(s.percentRemaining)%"]
-        for m in s.metrics { lines.append("\(m.label): \(m.percentUsed)% used") }
+        for m in s.metrics {
+            if m.isMetered {
+                lines.append("\(m.label): \(m.spendText ?? "$0.00") spent")
+            } else {
+                lines.append("\(m.label): \(m.percentUsed)% used")
+            }
+        }
+        if let spend = s.meteredSpend {
+            lines.append("Metered spend: \(ModelPricing.formatUSD(spend))")
+        }
         lines.append("Next reset: \(Formatting.absolute(s.nextReset))")
         lines.append("Captured: \(Formatting.absolute(s.capturedAt))")
         NSPasteboard.general.clearContents()

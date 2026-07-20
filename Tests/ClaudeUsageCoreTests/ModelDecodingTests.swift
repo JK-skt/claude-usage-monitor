@@ -28,14 +28,16 @@ struct ModelDecodingTests {
         #expect(usage.overage?.status == "disabled")
     }
 
-    @Test("Decodes the `limits` array and surfaces per-model (Fable) usage")
+    @Test("Decodes the `limits` array and surfaces Fable as a metered (pay-as-you-go) metric")
     func limitsArrayWithFable() throws {
+        // Post-2026-07 policy: Fable is metered. The server may report accrued spend via
+        // `used_dollars`; it carries no quota bar.
         let json = """
         { "limits": [
-            { "group":"session", "kind":"session", "is_active":false, "percent":3,
+            { "group":"session", "kind":"session", "is_active":true, "percent":3,
               "resets_at":"2026-07-16T15:29:59Z", "severity":"normal" },
-            { "group":"weekly", "kind":"weekly_scoped", "is_active":true, "percent":8,
-              "resets_at":"2026-07-22T12:59:59Z", "severity":"normal",
+            { "group":"weekly", "kind":"weekly_scoped", "is_active":false,
+              "resets_at":"2026-07-22T12:59:59Z", "severity":"normal", "used_dollars": 4.20,
               "scope": { "model": { "display_name":"Fable", "id":null }, "surface":null } }
         ] }
         """.data(using: .utf8)!
@@ -46,10 +48,48 @@ struct ModelDecodingTests {
 
         #expect(usage.limits.count == 2)
         let fable = snapshot.metric(forModel: "fable")
-        #expect(fable?.percentUsed == 8)
-        #expect(fable?.isActive == true)
-        #expect(fable?.label == "Fable (weekly)")
+        #expect(fable?.isMetered == true)
+        #expect(fable?.pricing == .fable)
+        #expect(fable?.usedDollars == 4.20)
+        #expect(fable?.spendText == "$4.20")
+        #expect(fable?.label == "Fable (metered)")
         #expect(snapshot.modelMetrics.map(\.modelName) == ["Fable"])
+        // Metered Fable does not drive the quota headline; the 3% session window does.
+        #expect(snapshot.percentUsed == 3)
+        #expect(snapshot.meteredSpend == 4.20)
+    }
+
+    // MARK: Metered pricing (Fable pay-as-you-go)
+
+    @Test("Fable pricing: $10 / 1M input, $50 / 1M output")
+    func fablePricing() {
+        let p = ModelPricing.fable
+        #expect(p.cost(inputTokens: 1_000_000, outputTokens: 1_000_000).total == Decimal(60))
+        #expect(p.cost(inputTokens: 1_000_000, outputTokens: 0).total == Decimal(10))
+        #expect(p.cost(inputTokens: 0, outputTokens: 1_000_000).total == Decimal(50))
+        #expect(p.cost(inputTokens: 250_000, outputTokens: 100_000).inputCost == Decimal(2.5))
+        #expect(p.cost(inputTokens: 250_000, outputTokens: 100_000).outputCost == Decimal(5))
+        #expect(p.cost(inputTokens: -5, outputTokens: -5).total == Decimal(0)) // clamps negatives
+    }
+
+    @Test("Pricing registry resolves metered models case-insensitively")
+    func pricingRegistry() {
+        #expect(ModelPricing.forModel("Fable") == .fable)
+        #expect(ModelPricing.forModel("fable") == .fable)
+        #expect(ModelPricing.forModel("Opus") == nil)
+        #expect(ModelPricing.forModel(nil) == nil)
+    }
+
+    @Test("Spend object decodes minor-unit money")
+    func spendDecoding() throws {
+        let json = """
+        { "spend": { "enabled": true, "percent": 12, "severity": "normal",
+                     "used": { "amount_minor": 1234, "currency": "USD", "exponent": 2 },
+                     "limit": { "amount_minor": 5000, "currency": "USD", "exponent": 2 } } }
+        """.data(using: .utf8)!
+        let usage = try JSONDecoder().decode(UsageResponse.self, from: json)
+        #expect(usage.spend?.usedDollars == 12.34)
+        #expect(usage.spend?.limitDollars == 50.0)
     }
 
     @Test("Utilization is an integer percentage (0…100)")

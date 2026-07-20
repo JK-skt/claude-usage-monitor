@@ -160,6 +160,11 @@ supported by Anthropic**. It reads your own local Claude Code session and calls 
 stores and transmits no credentials beyond the single authenticated request that Claude
 Code itself makes. Use at your own risk. "Claude" is a trademark of Anthropic.
 
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md). Latest: **0.2.0** — Fable pay-as-you-go (metered)
+billing support ($10 / 1M input, $50 / 1M output).
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

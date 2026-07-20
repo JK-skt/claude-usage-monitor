@@ -75,11 +75,31 @@ struct CLI {
         for m in s.metrics {
             let name = m.label.padding(toLength: width, withPad: " ", startingAt: 0)
             let active = m.isActive ? " ←active" : ""
-            print("  \(name) \(bar(m.fractionUsed)) \(m.percentUsed)% used\(active)")
+            if m.isMetered {
+                // Pay-as-you-go: there is no quota bar — show spend to date, and the rate.
+                let rate = m.pricing.map {
+                    " (in $\(nf($0.inputPerMillion))/M, out $\(nf($0.outputPerMillion))/M)"
+                } ?? ""
+                print("  \(name) \(m.spendText ?? "$0.00") spent\(rate)\(active)")
+            } else {
+                print("  \(name) \(bar(m.fractionUsed)) \(m.percentUsed)% used\(active)")
+            }
+        }
+        if let spend = s.meteredSpend {
+            print("Metered spend: \(ModelPricing.formatUSD(spend))")
         }
         if let reset = s.nextReset {
             print("Next reset: \(ISO8601DateFormatter().string(from: reset))")
         }
+    }
+
+    /// Compact decimal (drops trailing `.0`), for rate display like `$10/M`.
+    static func nf(_ d: Decimal) -> String {
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        f.minimumFractionDigits = 0
+        f.maximumFractionDigits = 2
+        return f.string(from: NSDecimalNumber(decimal: d)) ?? "\(d)"
     }
 
     static func printJSON(_ s: UsageSnapshot) {
@@ -116,15 +136,32 @@ struct CLI {
         check("enveloped credentials decode",
               (try? OAuthCredentials.decode(from: enveloped))?.accessToken == "sk")
 
-        // A Fable-style model-scoped limit is surfaced via the `limits` array.
-        let fable = UsageLimit(group: "weekly", kind: "weekly_scoped", percent: 88,
+        // Fable pay-as-you-go pricing: $10 / 1M input, $50 / 1M output.
+        let breakdown = ModelPricing.fable.cost(inputTokens: 1_000_000, outputTokens: 1_000_000)
+        check("Fable 1M in + 1M out = $60", breakdown.total == Decimal(60))
+        check("Fable input component = $10", breakdown.inputCost == Decimal(10))
+        check("Fable output component = $50", breakdown.outputCost == Decimal(50))
+        check("Fable 500K in = $5", ModelPricing.fable.cost(inputTokens: 500_000, outputTokens: 0).total == Decimal(5))
+        check("pricing lookup is case-insensitive", ModelPricing.forModel("fable") == .fable)
+        check("non-metered model has no pricing", ModelPricing.forModel("Opus") == nil)
+
+        // A Fable model-scoped limit is now metered — surfaced as spend, not a quota %.
+        let fable = UsageLimit(group: "weekly", kind: "weekly_scoped", percent: nil,
             resetsAt: nil, isActive: true, severity: "normal",
-            scope: .init(model: .init(displayName: "Fable", id: nil), surface: nil))
-        let usage = UsageResponse(fiveHour: RateLimitWindow(utilization: 42, remaining: nil, resetsAt: nil),
-            sevenDay: nil, sevenDayOpus: nil, overage: nil, limits: [fable])
+            scope: .init(model: .init(displayName: "Fable", id: nil), surface: nil),
+            usedDollars: 12.34)
+        let quota = RateLimitWindow(utilization: 88, remaining: nil, resetsAt: nil)
+        let usage = UsageResponse(
+            fiveHour: quota, sevenDay: nil, sevenDayOpus: nil, overage: nil, limits: [
+                UsageLimit(group: "session", kind: "session", percent: 88, resetsAt: nil,
+                           isActive: false, severity: "normal", scope: nil),
+                fable
+            ])
         let snap = UsageSnapshot(capturedAt: Date(), account: nil, usage: usage)
-        check("Fable metric present via limits", snap.metric(forModel: "fable")?.percentUsed == 88)
-        check("headline = most consumed (Fable 88%)", snap.percentUsed == 88)
+        check("Fable metric is metered", snap.metric(forModel: "fable")?.isMetered == true)
+        check("Fable spend surfaced", snap.metric(forModel: "fable")?.spendText == "$12.34")
+        check("metered metric excluded from headline", snap.percentUsed == 88)
+        check("metered spend total", snap.meteredSpend == 12.34)
         check("severity for 12% remaining = orange", snap.severity == .orange)
 
         print(failures == 0 ? "\nAll checks passed." : "\n\(failures) check(s) FAILED.")

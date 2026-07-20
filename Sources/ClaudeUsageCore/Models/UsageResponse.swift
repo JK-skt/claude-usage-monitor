@@ -19,19 +19,24 @@ public struct UsageResponse: Codable, Sendable, Hashable {
     /// The modern, authoritative `limits` array — includes per-model (scoped) windows
     /// such as Fable. Preferred over the legacy top-level windows when present.
     public let limits: [UsageLimit]
+    /// Metered (pay-as-you-go) spend to date, when the account has usage-based billing.
+    /// This is where Fable's per-token charges surface once the server reports them.
+    public let spend: Spend?
 
     public init(
         fiveHour: RateLimitWindow?,
         sevenDay: RateLimitWindow?,
         sevenDayOpus: RateLimitWindow?,
         overage: Overage?,
-        limits: [UsageLimit] = []
+        limits: [UsageLimit] = [],
+        spend: Spend? = nil
     ) {
         self.fiveHour = fiveHour
         self.sevenDay = sevenDay
         self.sevenDayOpus = sevenDayOpus
         self.overage = overage
         self.limits = limits
+        self.spend = spend
     }
 
     public init(from decoder: any Decoder) throws {
@@ -41,6 +46,7 @@ public struct UsageResponse: Codable, Sendable, Hashable {
         sevenDayOpus = try c.decodeIfPresent(RateLimitWindow.self, forKey: .sevenDayOpus)
         overage = try c.decodeIfPresent(Overage.self, forKey: .overage)
         limits = try c.decodeIfPresent([UsageLimit].self, forKey: .limits) ?? []
+        spend = try c.decodeIfPresent(Spend.self, forKey: .spend)
     }
 
     enum CodingKeys: String, CodingKey {
@@ -49,6 +55,55 @@ public struct UsageResponse: Codable, Sendable, Hashable {
         case sevenDayOpus = "seven_day_opus"
         case overage
         case limits
+        case spend
+    }
+
+    /// The `spend` object: accrued metered charges (e.g. usage credits) and any cap.
+    /// Amounts are minor-unit encoded (`amount_minor` + `exponent`), e.g. 1234 with
+    /// exponent 2 → $12.34.
+    public struct Spend: Codable, Sendable, Hashable {
+        public let enabled: Bool?
+        public let percent: Double?
+        public let severity: String?
+        public let used: Money?
+        public let limit: Money?
+
+        public init(enabled: Bool?, percent: Double?, severity: String?,
+                    used: Money?, limit: Money?) {
+            self.enabled = enabled
+            self.percent = percent
+            self.severity = severity
+            self.used = used
+            self.limit = limit
+        }
+
+        /// Spend to date in dollars, if reported.
+        public var usedDollars: Double? { used?.dollars }
+        /// Spend cap in dollars, if set.
+        public var limitDollars: Double? { limit?.dollars }
+
+        public struct Money: Codable, Sendable, Hashable {
+            public let amountMinor: Double?
+            public let currency: String?
+            public let exponent: Int?
+
+            public init(amountMinor: Double?, currency: String?, exponent: Int?) {
+                self.amountMinor = amountMinor
+                self.currency = currency
+                self.exponent = exponent
+            }
+
+            enum CodingKeys: String, CodingKey {
+                case amountMinor = "amount_minor"
+                case currency, exponent
+            }
+
+            /// Minor units converted to the major unit (dollars), e.g. 1234@exp2 → 12.34.
+            public var dollars: Double? {
+                guard let amountMinor else { return nil }
+                return amountMinor / pow(10.0, Double(exponent ?? 2))
+            }
+        }
     }
 
     public struct Overage: Codable, Sendable, Hashable {
