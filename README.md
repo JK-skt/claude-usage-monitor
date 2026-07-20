@@ -57,6 +57,26 @@ On first run macOS asks to authorize reading the `Claude Code-credentials` Keych
 item — click **Always Allow**. (Why: the item's ACL is owned by Claude Code. Details in
 `docs/AUTH.md`.)
 
+## History, prediction & automation
+
+```bash
+claude-monitor --watch 30        # live-refreshing terminal view (+ burn rate)
+claude-monitor --history --csv   # export accumulated history as CSV
+claude-monitor --serve 9090      # Prometheus /metrics + REST /usage /history /status
+```
+
+- **History** — every successful refresh (app or CLI) appends a JSONL sample to
+  `~/Library/Application Support/ClaudeUsageMonitor/history.jsonl`.
+- **Prediction** — a least-squares fit over the current (post-reset) run gives a burn
+  rate (%/h) and projected exhaustion time, shown in the menu and `--watch`.
+- **Prometheus** — `claude-monitor --serve` exposes `http://127.0.0.1:9090/metrics`
+  (loopback only) for Grafana, plus a small JSON REST API (`/usage`, `/history`,
+  `/status`).
+- **Notifications** — the app alerts at 20 / 10 / 5 / 1 % remaining and once on reset
+  (toggle in Settings).
+- **Widget** — a WidgetKit widget (Small / Medium / Large) lives in `Widget/`; see
+  [`docs/WIDGET.md`](docs/WIDGET.md) (needs an Xcode target + App Group).
+
 ## Install as an app (.app / DMG)
 
 Build a signed, double-clickable `ClaudeUsageMonitor.app` and a drag-to-install DMG:
@@ -137,15 +157,15 @@ docs/AUTH.md               # reverse-engineering & auth documentation
 |------:|------|:-----:|
 | 1–3 | Auth + usage-API research & validation | ✅ done (`docs/AUTH.md`) |
 | 5–7 | Core data layer + Menu Bar app | ✅ done (this slice) |
-| 10 | `claude-monitor` CLI (`--json`, `--selftest`) | ✅ basic; `--watch/--csv/--history` next |
+| 10 | `claude-monitor` CLI (`--json`, `--csv`, `--watch`, `--history`, `--serve`) | ✅ done |
+| 6 | Usage history (JSONL) + burn-rate/exhaustion prediction | ✅ done |
+| 8–9 | In-menu ring gauge + trend sparkline; **WidgetKit widget** (S/M/L) | ✅ done — widget builds/embeds/registers via `scripts/build-widget.sh` (`docs/WIDGET.md`) |
+| 11–12 | Prometheus exporter + local REST API (`--serve`) | ✅ done |
+| 13–16 | Threshold **notifications** | ✅ done · Raycast/Alfred/Shortcuts ⏳ |
 | 4 | OAuth token **refresh** flow | ⏳ next |
-| 6 | SwiftData history store + prediction | ⏳ |
-| 8–9 | WidgetKit widgets + Swift Charts | ⏳ |
-| 11–12 | Prometheus exporter + local REST API | ⏳ |
-| 13–16 | Raycast / Alfred / Shortcuts / Notifications | ⏳ |
 | 20 | `.app` bundle + generated icon + DMG + **Launch at login** (Settings/SMAppService) | ✅ done |
 | 20 | Developer ID signing + notarization pipeline + CI (build/test + release on tag) | ✅ scripted (needs your Developer ID cert) |
-| 20 | Sparkle auto-update, Homebrew cask | ⏳ |
+| 20 | Homebrew cask (`Casks/`) | ✅ done | Sparkle auto-update | ⏳ |
 
 ## Security & privacy
 
