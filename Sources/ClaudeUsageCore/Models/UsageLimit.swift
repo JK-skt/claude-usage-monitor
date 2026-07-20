@@ -25,9 +25,15 @@ public struct UsageLimit: Codable, Sendable, Hashable, Identifiable {
     /// Server-provided severity string (`normal`, `warning`, `critical`, …).
     public let severity: String?
     public let scope: Scope?
+    /// USD spent under pay-as-you-go billing (`used_dollars`), when the server reports
+    /// it for a metered scoped window such as Fable.
+    public let usedDollars: Double?
+    /// USD spend cap for this window (`limit_dollars`), when set.
+    public let limitDollars: Double?
 
     public init(group: String?, kind: String?, percent: Double?, resetsAt: Date?,
-                isActive: Bool?, severity: String?, scope: Scope?) {
+                isActive: Bool?, severity: String?, scope: Scope?,
+                usedDollars: Double? = nil, limitDollars: Double? = nil) {
         self.group = group
         self.kind = kind
         self.percent = percent
@@ -35,12 +41,16 @@ public struct UsageLimit: Codable, Sendable, Hashable, Identifiable {
         self.isActive = isActive
         self.severity = severity
         self.scope = scope
+        self.usedDollars = usedDollars
+        self.limitDollars = limitDollars
     }
 
     enum CodingKeys: String, CodingKey {
         case group, kind, percent, severity, scope
         case resetsAt = "resets_at"
         case isActive = "is_active"
+        case usedDollars = "used_dollars"
+        case limitDollars = "limit_dollars"
     }
 
     public struct Scope: Codable, Sendable, Hashable {
@@ -76,6 +86,13 @@ public struct UsageLimit: Codable, Sendable, Hashable, Identifiable {
     /// Model name this limit is scoped to, if any (e.g. "Fable", "Opus").
     public var modelName: String? { scope?.model?.displayName }
 
+    /// Pay-as-you-go pricing for this window's model, if it is metered (e.g. Fable).
+    /// `nil` for fixed-quota windows.
+    public var pricing: ModelPricing? { ModelPricing.forModel(modelName) }
+
+    /// Whether this window is billed by usage (metered) rather than bounded by a quota.
+    public var isMetered: Bool { pricing != nil }
+
     public var fractionUsed: Double {
         min(max((percent ?? 0) / 100.0, 0), 1)
     }
@@ -87,7 +104,7 @@ public struct UsageLimit: Codable, Sendable, Hashable, Identifiable {
     /// "Fable (weekly)".
     public var displayLabel: String {
         if let model = modelName {
-            return "\(model) (weekly)"
+            return isMetered ? "\(model) (metered)" : "\(model) (weekly)"
         }
         switch kind {
         case "session":      return "Session (5h)"
