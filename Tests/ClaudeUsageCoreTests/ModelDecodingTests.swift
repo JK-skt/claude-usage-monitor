@@ -59,6 +59,38 @@ struct ModelDecodingTests {
         #expect(snapshot.meteredSpend == 4.20)
     }
 
+    @Test("Fable as a quota window surfaces available resource and drives the headline")
+    func fableQuotaWindow() throws {
+        // Current policy: the server can send Fable as a weekly_scoped *quota* (percent),
+        // with no dollars — it has an available resource and is NOT metered.
+        let json = """
+        { "limits": [
+            { "group":"session", "kind":"session", "is_active":false, "percent":17,
+              "resets_at":"2026-07-20T15:49:59Z", "severity":"normal" },
+            { "group":"weekly", "kind":"weekly_all", "is_active":false, "percent":25,
+              "resets_at":"2026-07-22T12:59:59Z", "severity":"normal" },
+            { "group":"weekly", "kind":"weekly_scoped", "is_active":true, "percent":33,
+              "resets_at":"2026-07-22T12:59:59Z", "severity":"normal",
+              "scope": { "model": { "display_name":"Fable", "id":null }, "surface":null } }
+        ] }
+        """.data(using: .utf8)!
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let usage = try decoder.decode(UsageResponse.self, from: json)
+        let snap = UsageSnapshot(capturedAt: Date(), account: nil, usage: usage)
+
+        let fable = snap.metric(forModel: "fable")
+        #expect(fable?.hasQuota == true)
+        #expect(fable?.isMetered == false)      // no dollars reported → not metered now
+        #expect(fable?.percentRemaining == 67)  // the available resource
+        #expect(fable?.label == "Fable (weekly)")
+        #expect(fable?.pricing == .fable)        // rate still known, shown as context
+        // Fable (33% used) is the most-consumed quota → it drives the headline.
+        #expect(snap.percentUsed == 33)
+        #expect(snap.percentRemaining == 67)
+        #expect(snap.meteredSpend == nil)        // nothing metered
+    }
+
     // MARK: Metered pricing (Fable pay-as-you-go)
 
     @Test("Fable pricing: $10 / 1M input, $50 / 1M output")

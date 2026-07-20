@@ -11,16 +11,19 @@ public struct UsageMetric: Sendable, Hashable, Codable, Identifiable {
     public let isActive: Bool
     /// Present when the metric is scoped to a specific model (e.g. "Fable").
     public let modelName: String?
-    /// Pay-as-you-go pricing when this metric is billed by usage (e.g. Fable). When set,
-    /// the metric is *metered*: it has no quota, so it is shown as a dollar amount rather
-    /// than a "% left" and does not drive the headline "% remaining".
+    /// Known per-token pricing for the model, shown as context (e.g. Fable's rate).
     public let pricing: ModelPricing?
-    /// USD spent so far on this metered metric, when the server reports it.
+    /// USD spent so far, when the server bills this metric by usage.
     public let usedDollars: Double?
+    /// Whether the metric currently has a percentage quota (a bounded available resource).
+    public let hasQuota: Bool
+    /// Whether the server is billing this metric by usage right now (reports dollars).
+    public let isMetered: Bool
 
     public init(id: String, label: String, fractionUsed: Double,
                 resetsAt: Date?, isActive: Bool, modelName: String?,
-                pricing: ModelPricing? = nil, usedDollars: Double? = nil) {
+                pricing: ModelPricing? = nil, usedDollars: Double? = nil,
+                hasQuota: Bool = true, isMetered: Bool = false) {
         self.id = id
         self.label = label
         self.fractionUsed = fractionUsed
@@ -29,13 +32,12 @@ public struct UsageMetric: Sendable, Hashable, Codable, Identifiable {
         self.modelName = modelName
         self.pricing = pricing
         self.usedDollars = usedDollars
+        self.hasQuota = hasQuota
+        self.isMetered = isMetered
     }
 
     public var percentUsed: Int { Int((fractionUsed * 100).rounded()) }
     public var percentRemaining: Int { 100 - percentUsed }
-
-    /// Whether this metric is billed by usage (metered) rather than by a fixed quota.
-    public var isMetered: Bool { pricing != nil }
 
     /// Spend to date rendered for display (e.g. "$0.00"), or `nil` if not metered / unknown.
     public var spendText: String? {
@@ -70,7 +72,9 @@ public struct UsageSnapshot: Sendable, Hashable, Codable {
                     isActive: limit.isActive ?? false,
                     modelName: limit.modelName,
                     pricing: limit.pricing,
-                    usedDollars: limit.usedDollars
+                    usedDollars: limit.usedDollars,
+                    hasQuota: limit.hasQuota,
+                    isMetered: limit.isMetered
                 )
             }
         }
@@ -78,7 +82,8 @@ public struct UsageSnapshot: Sendable, Hashable, Codable {
         func add(_ id: String, _ label: String, _ w: RateLimitWindow?) {
             guard let w else { return }
             out.append(UsageMetric(id: id, label: label, fractionUsed: w.fractionUsed,
-                                   resetsAt: w.resetsAt, isActive: false, modelName: nil))
+                                   resetsAt: w.resetsAt, isActive: false, modelName: nil,
+                                   hasQuota: true, isMetered: false))
         }
         add("five_hour", "Session (5h)", usage.fiveHour)
         add("seven_day", "Weekly (all models)", usage.sevenDay)
@@ -108,10 +113,10 @@ public struct UsageSnapshot: Sendable, Hashable, Codable {
     }
 
     /// The window driving the headline: the most-consumed *quota* metric (the one the
-    /// user will hit first). Metered metrics (e.g. Fable) have no quota, so they are
-    /// excluded — their pressure is a dollar amount, surfaced via ``meteredSpend``.
+    /// user will hit first). Windows without a quota (pure metered spend) are excluded —
+    /// their pressure is a dollar amount, surfaced via ``meteredSpend``.
     public var headlineMetric: UsageMetric? {
-        let quotaMetrics = metrics.filter { !$0.isMetered }
+        let quotaMetrics = metrics.filter { $0.hasQuota }
         return quotaMetrics.max(by: { $0.fractionUsed < $1.fractionUsed })
     }
 

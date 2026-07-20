@@ -63,6 +63,7 @@ item — click **Always Allow**. (Why: the item's ACL is owned by Claude Code. D
 claude-monitor --watch 30        # live-refreshing terminal view (+ burn rate)
 claude-monitor --history --csv   # export accumulated history as CSV
 claude-monitor --serve 9090      # Prometheus /metrics + REST /usage /history /status
+claude-monitor --tokens 7        # token counts by application/model/project (last 7d)
 ```
 
 - **History** — every successful refresh (app or CLI) appends a JSONL sample to
@@ -72,6 +73,12 @@ claude-monitor --serve 9090      # Prometheus /metrics + REST /usage /history /s
 - **Prometheus** — `claude-monitor --serve` exposes `http://127.0.0.1:9090/metrics`
   (loopback only) for Grafana, plus a small JSON REST API (`/usage`, `/history`,
   `/status`).
+- **Tokens** — `claude-monitor --tokens` (and a menu section) aggregate real token
+  counts from local Claude Code session logs (`~/.claude/projects`), grouped by
+  **application/source** (VS Code, CLI, …), model, and project. The Claude desktop chat
+  app stores conversations server-side, so its tokens aren't counted locally.
+- **Available resources** — model-scoped windows (e.g. Fable) show remaining quota
+  *and* metered spend when the server reports it, rather than one or the other.
 - **Notifications** — the app alerts at 20 / 10 / 5 / 1 % remaining and once on reset
   (toggle in Settings).
 - **Widget** — a WidgetKit widget (Small / Medium / Large) lives in `Widget/`; see

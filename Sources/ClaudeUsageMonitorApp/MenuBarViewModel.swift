@@ -41,6 +41,19 @@ final class MenuBarViewModel: ObservableObject {
     /// Recent usage samples (used% over time) for the in-menu sparkline.
     @Published private(set) var recentHistory: [UsageRecord] = []
 
+    /// Token usage from local Claude Code session logs (by app/source), loaded lazily.
+    @Published private(set) var tokenReport: TokenReport?
+    private let tokenReader = TokenUsageReader()
+    private var tokensLoadedAt: Date?
+
+    /// Loads the token report when the menu opens, at most once every few minutes
+    /// (scanning session logs is I/O — don't do it on every background poll).
+    func loadTokens(force: Bool = false) async {
+        if !force, let t = tokensLoadedAt, Date().timeIntervalSince(t) < 180 { return }
+        tokenReport = await tokenReader.report(windowDays: 7)
+        tokensLoadedAt = Date()
+    }
+
     /// Threshold-alert toggle, surfaced in Settings.
     var notificationsEnabled: Bool {
         get { notifications.enabled }

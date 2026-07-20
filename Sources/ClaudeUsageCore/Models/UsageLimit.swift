@@ -86,12 +86,18 @@ public struct UsageLimit: Codable, Sendable, Hashable, Identifiable {
     /// Model name this limit is scoped to, if any (e.g. "Fable", "Opus").
     public var modelName: String? { scope?.model?.displayName }
 
-    /// Pay-as-you-go pricing for this window's model, if it is metered (e.g. Fable).
-    /// `nil` for fixed-quota windows.
+    /// Known per-token pricing for this window's model (e.g. Fable), shown as context.
+    /// Non-nil does **not** by itself mean the window is currently metered — the server
+    /// decides that by reporting dollars.
     public var pricing: ModelPricing? { ModelPricing.forModel(modelName) }
 
-    /// Whether this window is billed by usage (metered) rather than bounded by a quota.
-    public var isMetered: Bool { pricing != nil }
+    /// Whether the server is billing this window by usage right now — it reports spend
+    /// (`used_dollars`) or a dollar cap (`limit_dollars`). Driven by the response, not by
+    /// whether we happen to know a price for the model.
+    public var isMetered: Bool { usedDollars != nil || limitDollars != nil }
+
+    /// Whether this window has a percentage quota (a bounded "available resource").
+    public var hasQuota: Bool { percent != nil }
 
     public var fractionUsed: Double {
         min(max((percent ?? 0) / 100.0, 0), 1)
@@ -104,7 +110,8 @@ public struct UsageLimit: Codable, Sendable, Hashable, Identifiable {
     /// "Fable (weekly)".
     public var displayLabel: String {
         if let model = modelName {
-            return isMetered ? "\(model) (metered)" : "\(model) (weekly)"
+            if isMetered { return "\(model) (metered)" }
+            return group == "weekly" ? "\(model) (weekly)" : model
         }
         switch kind {
         case "session":      return "Session (5h)"

@@ -39,6 +39,7 @@ struct MenuContentView: View {
         .onAppear {
             model.refreshIfStale()
             loginItem.refresh()
+            Task { await model.loadTokens() }
         }
     }
 
@@ -71,11 +72,48 @@ struct MenuContentView: View {
                 ForEach(s.metrics) { metricRow($0) }
             }
 
+            tokensSection
+
             if model.detailed {
                 Divider()
                 detailSection(s)
             }
         }
+    }
+
+    /// Token counts from local Claude Code logs, grouped by originating app.
+    @ViewBuilder
+    private var tokensSection: some View {
+        if let r = model.tokenReport, r.today.inputPlusOutput > 0 || !r.bySource.isEmpty {
+            Divider()
+            VStack(alignment: .leading, spacing: 3) {
+                HStack {
+                    Label("Tokens today", systemImage: "number")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Text("\(tok(r.today.input + r.today.output)) in+out")
+                        .font(.caption).monospacedDigit()
+                }
+                ForEach(r.bySource) { s in
+                    HStack {
+                        Text(s.name).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+                        Spacer()
+                        Text("\(tok(s.totals.input + s.totals.output)) · 7d")
+                            .font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
+                    }
+                }
+                Text("Claude Code only — desktop chat is server-side")
+                    .font(.system(size: 9)).foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    /// Compact token count, e.g. 3.2M, 924K.
+    private func tok(_ n: Int) -> String {
+        let d = Double(n)
+        if d >= 1_000_000 { return String(format: "%.1fM", d / 1_000_000) }
+        if d >= 1_000 { return String(format: "%.0fK", d / 1_000) }
+        return "\(n)"
     }
 
     private func hero(_ s: UsageSnapshot) -> some View {
@@ -134,29 +172,34 @@ struct MenuContentView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 if m.modelName != nil {
-                    Image(systemName: m.isMetered ? "dollarsign.circle" : "cpu")
+                    Image(systemName: m.pricing != nil ? "dollarsign.circle" : "cpu")
                         .font(.caption2).foregroundStyle(.secondary)
                 }
                 Text(m.label).font(.caption).foregroundStyle(.secondary)
                 if m.isActive { ActiveBadge() }
                 Spacer()
-                if m.isMetered {
-                    Text(m.spendText ?? "$0.00")
-                        .font(.caption).monospacedDigit().foregroundStyle(.primary)
-                } else {
-                    Text("\(m.percentUsed)%")
-                        .font(.caption).monospacedDigit()
-                        .foregroundStyle(color(forFraction: m.fractionUsed))
+                // Right side: available quota and/or metered spend, together.
+                HStack(spacing: 6) {
+                    if m.hasQuota {
+                        Text("\(m.percentRemaining)% left")
+                            .font(.caption).monospacedDigit()
+                            .foregroundStyle(color(forFraction: m.fractionUsed))
+                    }
+                    if m.isMetered {
+                        Text(m.spendText ?? "$0.00")
+                            .font(.caption).monospacedDigit().foregroundStyle(.primary)
+                    }
                 }
             }
-            if m.isMetered {
-                // Pay-as-you-go: no quota bar. Show the per-token rate instead.
-                if let p = m.pricing {
-                    Text("$\(rate(p.inputPerMillion))/M in · $\(rate(p.outputPerMillion))/M out")
-                        .font(.caption2).foregroundStyle(.tertiary)
-                }
-            } else {
-                UsageBar(fraction: m.fractionUsed, color: color(forFraction: m.fractionUsed))
+            if m.hasQuota {
+                // Fill = remaining capacity (a "fuel gauge"), matching the "% left" label.
+                UsageBar(fraction: 1 - m.fractionUsed, color: color(forFraction: m.fractionUsed))
+            }
+            // Per-token rate — shown for priced models (Fable) as context; the rate is the
+            // marginal cost once the window is metered.
+            if let p = m.pricing, (m.isMetered || model.detailed) {
+                Text("$\(rate(p.inputPerMillion))/M in · $\(rate(p.outputPerMillion))/M out")
+                    .font(.caption2).foregroundStyle(.tertiary)
             }
             if model.detailed, let reset = m.resetsAt {
                 Text("resets \(Formatting.relative(reset))")

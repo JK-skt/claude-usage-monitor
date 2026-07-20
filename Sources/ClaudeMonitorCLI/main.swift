@@ -10,6 +10,7 @@ struct CLI {
         if args.contains("--help") || args.contains("-h") { printUsage(); return 0 }
         if args.contains("--selftest") { return runSelfTest() ? 0 : 1 }
         if args.contains("--raw") { return await runRaw() }
+        if args.contains("--tokens") { return await runTokens(args) }
         if args.contains("--history") { return await runHistory(args) }
         if args.contains("--watch") { return await runWatch(args) }
         if args.contains("--serve") { return await runServe(args) }
@@ -42,6 +43,49 @@ struct CLI {
             }
             return 0
         } catch { fail(error); return 2 }
+    }
+
+    static func runTokens(_ args: [String]) async -> Int32 {
+        let days = intArg(args, after: "--tokens") ?? 7
+        let report = await TokenUsageReader().report(windowDays: days)
+        if args.contains("--json") { printEncodable(report); return 0 }
+
+        func fmt(_ n: Int) -> String {
+            let f = NumberFormatter(); f.numberStyle = .decimal
+            return f.string(from: NSNumber(value: n)) ?? "\(n)"
+        }
+        func line(_ label: String, _ t: TokenTotals) {
+            print("  \(pad(label, 14)) in \(pad(fmt(t.input), 12)) out \(pad(fmt(t.output), 12)) cache \(fmt(t.cacheRead + t.cacheCreation))")
+        }
+        print("Token usage (from local Claude Code session logs)")
+        line("Today", report.today)
+        line("Last \(report.windowDays)d", report.window)
+        if !report.bySource.isEmpty {
+            print("By source (application):")
+            for s in report.bySource { line(s.name, s.totals) }
+        }
+        if !report.byModel.isEmpty {
+            print("By model:")
+            for m in report.byModel { line(m.name, m.totals) }
+        }
+        if !report.byProject.isEmpty {
+            print("By project (top):")
+            for p in report.byProject.prefix(6) { line(p.name, p.totals) }
+        }
+        // Cost estimate only for metered models we price (e.g. Fable); others are
+        // subscription-covered, so their token counts stand on their own.
+        var estimated = Decimal(0)
+        for m in report.byModel {
+            if let p = ModelPricing.forModel(m.name) {
+                estimated += p.cost(inputTokens: m.totals.input, outputTokens: m.totals.output).total
+            }
+        }
+        if estimated > 0 {
+            print("Estimated metered cost (last \(report.windowDays)d): \(ModelPricing.formatUSD(NSDecimalNumber(decimal: estimated).doubleValue))")
+        }
+        print("Note: counts cover Claude Code (all entrypoints). The Claude desktop chat app")
+        print("      stores conversations server-side, so its tokens are not counted locally.")
+        return 0
     }
 
     static func runHistory(_ args: [String]) async -> Int32 {
@@ -140,11 +184,13 @@ struct CLI {
         for m in s.metrics {
             let name = m.label.padding(toLength: width, withPad: " ", startingAt: 0)
             let active = m.isActive ? " ←active" : ""
-            if m.isMetered {
-                let rate = m.pricing.map { " (in $\(nf($0.inputPerMillion))/M, out $\(nf($0.outputPerMillion))/M)" } ?? ""
-                print("  \(name) \(m.spendText ?? "$0.00") spent\(rate)\(active)")
-            } else {
-                print("  \(name) \(bar(m.fractionUsed)) \(m.percentUsed)% used\(active)")
+            var parts: [String] = []
+            if m.hasQuota { parts.append("\(bar(1 - m.fractionUsed)) \(m.percentRemaining)% left") }
+            if m.isMetered { parts.append("\(m.spendText ?? "$0.00") spent") }
+            if parts.isEmpty { parts.append("—") }
+            print("  \(name) \(parts.joined(separator: "  "))\(active)")
+            if let p = m.pricing {
+                print("  \(String(repeating: " ", count: width)) rate $\(nf(p.inputPerMillion))/M in · $\(nf(p.outputPerMillion))/M out")
             }
         }
         if let spend = s.meteredSpend { print("Metered spend: \(ModelPricing.formatUSD(spend))") }
@@ -217,6 +263,7 @@ struct CLI {
           claude-monitor --history [N]   Print stored history (+ --json / --csv)
           claude-monitor --serve [port]  Prometheus + REST server (default 9090)
                                          /metrics /usage /history /status
+          claude-monitor --tokens [days] Token counts from local session logs (default 7d)
           claude-monitor --raw           Raw /api/oauth/usage body
           claude-monitor --no-ui         Never show a Keychain dialog (cron/CI)
           claude-monitor --selftest      Offline logic checks (no network)
@@ -270,6 +317,15 @@ struct CLI {
 
         // HTTP request parsing.
         check("HTTP path parse", LocalHTTPServer.parsePath("GET /metrics?x=1 HTTP/1.1\r\nHost: x\r\n") == "/metrics")
+
+        // Token totals aggregation.
+        var tt = TokenTotals()
+        tt.add(TokenSample(timestamp: base, model: "m", project: "p", source: "s", input: 100, output: 50, cacheCreation: 10, cacheRead: 1000))
+        tt.add(TokenSample(timestamp: base, model: "m", project: "p", source: "s", input: 20, output: 5, cacheCreation: 0, cacheRead: 500))
+        check("token in+out sums", tt.inputPlusOutput == 175)
+        check("token grand total incl. cache", tt.grandTotal == 1685)
+        check("token message count", tt.messages == 2)
+        check("entrypoint→source label", TokenSample.sourceName(entrypoint: "claude-vscode") == "Claude Code (VS Code)")
 
         print(failures == 0 ? "\nAll checks passed." : "\n\(failures) check(s) FAILED.")
         return failures == 0
