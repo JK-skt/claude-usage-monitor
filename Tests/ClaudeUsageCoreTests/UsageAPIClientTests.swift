@@ -28,7 +28,9 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     }
 }
 
-@Suite("UsageAPIClient")
+// `.serialized`: the tests share `StubURLProtocol.responder` (a process-wide static), so
+// they must not run concurrently or they clobber each other's stubbed response.
+@Suite("UsageAPIClient", .serialized)
 struct UsageAPIClientTests {
 
     @Test("200 → decodes windows and sends the Bearer + anthropic headers")
