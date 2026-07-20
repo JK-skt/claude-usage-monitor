@@ -1,6 +1,9 @@
 import Foundation
 import SwiftUI
 import ClaudeUsageCore
+#if canImport(WidgetKit)
+import WidgetKit
+#endif
 
 @MainActor
 final class MenuBarViewModel: ObservableObject {
@@ -32,10 +35,25 @@ final class MenuBarViewModel: ObservableObject {
         didSet { UserDefaults.standard.set(detailed, forKey: Self.detailedKey) }
     }
 
+    /// Forecast (burn rate / projected exhaustion) from recent history.
+    @Published private(set) var prediction: UsagePrediction?
+
+    /// Recent usage samples (used% over time) for the in-menu sparkline.
+    @Published private(set) var recentHistory: [UsageRecord] = []
+
+    /// Threshold-alert toggle, surfaced in Settings.
+    var notificationsEnabled: Bool {
+        get { notifications.enabled }
+        set { notifications.enabled = newValue; objectWillChange.send() }
+    }
+
     private static let intervalKey = "refresh.interval"
     private static let detailedKey = "menu.detailed"
 
     private let repository: UsageRepositoryProtocol
+    private let history = UsageHistoryStore()
+    private let shared = SharedSnapshotStore()
+    private let notifications = NotificationManager()
     private var pollTask: Task<Void, Never>?
     private var consecutiveFailures = 0
     private var retryAfterHint: TimeInterval?
@@ -45,6 +63,7 @@ final class MenuBarViewModel: ObservableObject {
         self.detailed = UserDefaults.standard.bool(forKey: Self.detailedKey)
         let saved = UserDefaults.standard.double(forKey: Self.intervalKey)
         self.refreshInterval = saved > 0 ? saved : 300 // 5 minutes default
+        notifications.requestAuthorization()
         start()
     }
 
@@ -81,6 +100,17 @@ final class MenuBarViewModel: ObservableObject {
             lastError = nil
             consecutiveFailures = 0
             retryAfterHint = nil
+
+            // Persist, forecast, publish for the widget, and evaluate alerts.
+            try? await history.record(snapshot)
+            let recent = (try? await history.load(limit: 500)) ?? []
+            prediction = UsagePredictor.predict(recent)
+            recentHistory = Array(recent.suffix(60))
+            shared.save(snapshot)
+            notifications.evaluate(snapshot)
+            #if canImport(WidgetKit)
+            WidgetCenter.shared.reloadAllTimelines()
+            #endif
         } catch {
             consecutiveFailures += 1
             if case .rateLimited(let retryAfter) = error as? APIError {

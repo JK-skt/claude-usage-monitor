@@ -40,6 +40,48 @@ struct UsageBar: View {
     }
 }
 
+/// A compact sparkline of recent *used%* samples (0…100). Draws a filled area under a
+/// smooth line — enough to read the trend at a glance in the menu.
+struct Sparkline: View {
+    /// Values in 0...100, oldest → newest.
+    let values: [Double]
+    var color: Color = .accentColor
+
+    var body: some View {
+        GeometryReader { geo in
+            let pts = points(in: geo.size)
+            ZStack {
+                if pts.count >= 2 {
+                    // Filled area.
+                    Path { p in
+                        p.move(to: CGPoint(x: pts[0].x, y: geo.size.height))
+                        for pt in pts { p.addLine(to: pt) }
+                        p.addLine(to: CGPoint(x: pts[pts.count - 1].x, y: geo.size.height))
+                        p.closeSubpath()
+                    }
+                    .fill(color.opacity(0.15))
+                    // Line.
+                    Path { p in
+                        p.move(to: pts[0])
+                        for pt in pts.dropFirst() { p.addLine(to: pt) }
+                    }
+                    .stroke(color, style: StrokeStyle(lineWidth: 1.5, lineJoin: .round))
+                }
+            }
+        }
+    }
+
+    private func points(in size: CGSize) -> [CGPoint] {
+        guard values.count >= 2 else { return [] }
+        let maxV = 100.0, minV = 0.0
+        let dx = size.width / CGFloat(values.count - 1)
+        return values.enumerated().map { i, v in
+            let norm = (v - minV) / (maxV - minV)
+            return CGPoint(x: CGFloat(i) * dx, y: size.height * (1 - CGFloat(norm)))
+        }
+    }
+}
+
 /// Small pill used to mark the currently-binding window.
 struct ActiveBadge: View {
     var body: some View {

@@ -65,6 +65,8 @@ struct MenuContentView: View {
         VStack(alignment: .leading, spacing: 14) {
             hero(s)
 
+            trend
+
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(s.metrics) { metricRow($0) }
             }
@@ -96,6 +98,10 @@ struct MenuContentView: View {
                     Label(Formatting.relative(reset), systemImage: "clock.arrow.circlepath")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+                if let p = model.prediction, p.ratePerHour > 0.05 {
+                    Label(burnText(p), systemImage: "flame")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 if model.lastError != nil {
                     Label("Showing last known values", systemImage: "exclamationmark.triangle.fill")
                         .font(.caption2).foregroundStyle(.orange)
@@ -103,6 +109,25 @@ struct MenuContentView: View {
             }
             Spacer(minLength: 0)
         }
+    }
+
+    /// Trend sparkline of recent used% — only when we have enough samples.
+    @ViewBuilder
+    private var trend: some View {
+        let values = model.recentHistory.map { Double($0.percentUsed) }
+        if values.count >= 3 {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("USAGE TREND").font(.system(size: 9, weight: .bold)).foregroundStyle(.tertiary)
+                Sparkline(values: values, color: .orange).frame(height: 28)
+            }
+        }
+    }
+
+    private func burnText(_ p: UsagePrediction) -> String {
+        if let at = p.exhaustionAt, p.hoursUntilExhaustion != nil {
+            return String(format: "%.1f%%/h · runs out %@", p.ratePerHour, Formatting.relative(at))
+        }
+        return String(format: "%.1f%%/h burn rate", p.ratePerHour)
     }
 
     private func metricRow(_ m: UsageMetric) -> some View {
@@ -237,6 +262,12 @@ struct MenuContentView: View {
             }
 
             Toggle(isOn: $model.detailed) { Text("Show all details") }
+                .toggleStyle(.switch).controlSize(.small)
+
+            Toggle(isOn: Binding(
+                get: { model.notificationsEnabled },
+                set: { model.notificationsEnabled = $0 }
+            )) { Text("Low-usage alerts") }
                 .toggleStyle(.switch).controlSize(.small)
 
             HStack {
