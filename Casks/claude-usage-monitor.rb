@@ -8,7 +8,7 @@
 # and disables quarantine. Once releases are Developer ID signed + notarized, pin the
 # real checksum here (`shasum -a 256 <dmg>`) and drop `no_quarantine`.
 cask "claude-usage-monitor" do
-  version "0.2.0"
+  version "0.4.0"
   sha256 :no_check
 
   url "https://github.com/JK-skt/claude-usage-monitor/releases/download/v#{version}/ClaudeUsageMonitor-#{version}.dmg"

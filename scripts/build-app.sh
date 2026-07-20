@@ -3,14 +3,14 @@
 # Assembles a distributable ClaudeUsageMonitor.app bundle from the SPM release build,
 # embeds the icon + Info.plist, and ad-hoc code-signs it.
 #
-# Env overrides:  VERSION (default 0.2.0)   SIGN_IDENTITY (default "-" = ad-hoc)
+# Env overrides:  VERSION (default from ./VERSION)   SIGN_IDENTITY (default "-" = ad-hoc)
 #
 # Output: dist/ClaudeUsageMonitor.app
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP_NAME="ClaudeUsageMonitor"
-VERSION="${VERSION:-0.2.0}"
+VERSION="${VERSION:-$(cat "$(dirname "$0")/../VERSION" 2>/dev/null || echo 0.4.0)}"
 BUILD="$(git -C "$REPO_DIR" rev-list --count HEAD 2>/dev/null || echo 1)"
 SIGN_IDENTITY="${SIGN_IDENTITY:--}"
 

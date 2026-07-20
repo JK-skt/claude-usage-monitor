@@ -6,12 +6,12 @@
 # Env:
 #   SIGN_IDENTITY   "Developer ID Application: Your Name (TEAMID)"  (required)
 #   NOTARY_PROFILE  stored notarytool profile   (default: claude-usage-monitor-notary)
-#   VERSION         release version             (default: 0.2.0)
+#   VERSION         release version             (default: from ./VERSION)
 #   SKIP_NOTARIZE   set to 1 to sign only (no notarization)
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION="${VERSION:-0.2.0}"
+VERSION="${VERSION:-$(cat "$(dirname "$0")/../VERSION" 2>/dev/null || echo 0.4.0)}"
 DMG="$REPO_DIR/dist/ClaudeUsageMonitor-$VERSION.dmg"
 
 if [ "${SIGN_IDENTITY:--}" = "-" ]; then
