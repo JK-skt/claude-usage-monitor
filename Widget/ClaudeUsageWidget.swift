@@ -13,6 +13,8 @@ import ClaudeUsageCore
 struct UsageEntry: TimelineEntry {
     let date: Date
     let snapshot: UsageSnapshot?
+    /// User-pinned headline metric id ("" = auto), so the widget matches the app.
+    var pinnedID: String = ""
 }
 
 struct UsageProvider: TimelineProvider {
@@ -21,11 +23,13 @@ struct UsageProvider: TimelineProvider {
     }
 
     func getSnapshot(in context: Context, completion: @escaping (UsageEntry) -> Void) {
-        completion(UsageEntry(date: Date(), snapshot: SharedSnapshotStore().load()))
+        let store = SharedSnapshotStore()
+        completion(UsageEntry(date: Date(), snapshot: store.load(), pinnedID: store.loadHeadlinePin()))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<UsageEntry>) -> Void) {
-        let entry = UsageEntry(date: Date(), snapshot: SharedSnapshotStore().load())
+        let store = SharedSnapshotStore()
+        let entry = UsageEntry(date: Date(), snapshot: store.load(), pinnedID: store.loadHeadlinePin())
         // Refresh roughly every 15 minutes; the app also nudges reloads on each poll.
         let next = Calendar.current.date(byAdding: .minute, value: 15, to: Date()) ?? Date().addingTimeInterval(900)
         completion(Timeline(entries: [entry], policy: .after(next)))
@@ -103,7 +107,8 @@ struct UsageWidgetView: View {
 
     private func small(_ s: UsageSnapshot) -> some View {
         VStack(spacing: 6) {
-            WidgetGauge(remaining: s.percentRemaining, color: severityColor(s.severity))
+            WidgetGauge(remaining: s.percentRemaining(pinnedID: entry.pinnedID),
+                        color: severityColor(s.severity(pinnedID: entry.pinnedID)))
                 .frame(width: 78, height: 78)
             Text(s.planName).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
         }.padding()
@@ -111,7 +116,8 @@ struct UsageWidgetView: View {
 
     private func medium(_ s: UsageSnapshot) -> some View {
         HStack(spacing: 16) {
-            WidgetGauge(remaining: s.percentRemaining, color: severityColor(s.severity))
+            WidgetGauge(remaining: s.percentRemaining(pinnedID: entry.pinnedID),
+                        color: severityColor(s.severity(pinnedID: entry.pinnedID)))
                 .frame(width: 82, height: 82)
             VStack(alignment: .leading, spacing: 6) {
                 Text(s.planName).font(.headline)
@@ -128,7 +134,8 @@ struct UsageWidgetView: View {
     private func large(_ s: UsageSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 16) {
-                WidgetGauge(remaining: s.percentRemaining, color: severityColor(s.severity))
+                WidgetGauge(remaining: s.percentRemaining(pinnedID: entry.pinnedID),
+                            color: severityColor(s.severity(pinnedID: entry.pinnedID)))
                     .frame(width: 90, height: 90)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Claude Usage").font(.headline)

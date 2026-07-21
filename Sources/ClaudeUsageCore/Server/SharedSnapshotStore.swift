@@ -12,11 +12,14 @@ public struct SharedSnapshotStore: Sendable {
 
     private let appGroupID: String
     private let fileURL: URL
+    private let pinFileURL: URL
     private let key = "latestSnapshot"
+    private let pinKey = "headlineMetricID"
 
     public init(appGroupID: String = SharedSnapshotStore.appGroupID, fileURL: URL? = nil) {
         self.appGroupID = appGroupID
         self.fileURL = fileURL ?? AppPaths.supportDirectory.appendingPathComponent("latest-snapshot.json")
+        self.pinFileURL = AppPaths.supportDirectory.appendingPathComponent("headline-pin.txt")
     }
 
     /// The App Group defaults, when the entitlement is present (otherwise `nil`).
@@ -45,5 +48,22 @@ public struct SharedSnapshotStore: Sendable {
             return try? Self.decoder.decode(UsageSnapshot.self, from: data)
         }
         return nil
+    }
+
+    /// Publishes the user's pinned headline metric id ("" = auto) so out-of-process
+    /// readers (the widget) render the same "main usage" window as the app.
+    public func saveHeadlinePin(_ id: String) {
+        suite?.set(id, forKey: pinKey)
+        AppPaths.ensureSupportDirectory()
+        try? Data(id.utf8).write(to: pinFileURL, options: .atomic)
+    }
+
+    /// The pinned headline metric id, or "" (auto) when unset.
+    public func loadHeadlinePin() -> String {
+        if let id = suite?.string(forKey: pinKey) { return id }
+        if let data = try? Data(contentsOf: pinFileURL), let id = String(data: data, encoding: .utf8) {
+            return id
+        }
+        return ""
     }
 }

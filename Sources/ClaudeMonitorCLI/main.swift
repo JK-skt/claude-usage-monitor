@@ -9,6 +9,7 @@ struct CLI {
 
         if args.contains("--help") || args.contains("-h") { printUsage(); return 0 }
         if args.contains("--selftest") { return runSelfTest() ? 0 : 1 }
+        if args.contains("--check-update") { return await runCheckUpdate(args) }
         if args.contains("--raw") { return await runRaw() }
         if args.contains("--tokens") { return await runTokens(args) }
         if args.contains("--history") { return await runHistory(args) }
@@ -30,6 +31,38 @@ struct CLI {
     }
 
     // MARK: Commands
+
+    static func runCheckUpdate(_ args: [String]) async -> Int32 {
+        // Bare SPM binaries have no Info.plist; allow an explicit current version.
+        let current = stringArg(args, after: "--current") ?? AppVersion.current
+        do {
+            let latest = try await UpdateChecker().latestRelease()
+            let newer = SemanticVersion.isNewer(latest.version, than: current)
+            print("Current: \(current)")
+            print("Latest:  \(latest.tagName)\(latest.name.map { " — \($0)" } ?? "")")
+            if newer {
+                print("Update available.")
+                let lines = latest.highlights(max: 5)
+                if !lines.isEmpty {
+                    print("Key changes:")
+                    for l in lines { print("  • \(l)") }
+                }
+                if let dmg = latest.dmgAsset { print("DMG: \(dmg.browserDownloadURL)") }
+                if let page = latest.htmlURL { print("Notes: \(page)") }
+                return 10 // distinct exit code: update available (scriptable)
+            }
+            print("Up to date.")
+            return 0
+        } catch {
+            fail(error); return 2
+        }
+    }
+
+    static func stringArg(_ args: [String], after flag: String) -> String? {
+        guard let i = args.firstIndex(of: flag), i + 1 < args.count,
+              !args[i + 1].hasPrefix("--") else { return nil }
+        return args[i + 1]
+    }
 
     static func runRaw() async -> Int32 {
         do {
@@ -265,6 +298,8 @@ struct CLI {
                                          /metrics /usage /history /status
           claude-monitor --tokens [days] Token counts from local session logs (default 7d)
           claude-monitor --raw           Raw /api/oauth/usage body
+          claude-monitor --check-update  Check GitHub for a newer release
+                                         (--current X.Y.Z to override; exit 10 = update)
           claude-monitor --no-ui         Never show a Keychain dialog (cron/CI)
           claude-monitor --selftest      Offline logic checks (no network)
           claude-monitor --help          Show this help
@@ -290,6 +325,19 @@ struct CLI {
               (try? OAuthCredentials.decode(from: Data("{\"claudeAiOauth\":{\"accessToken\":\"sk\",\"expiresAt\":1777385989340}}".utf8)))?.accessToken == "sk")
         check("Fable 1M in + 1M out = $60",
               ModelPricing.fable.cost(inputTokens: 1_000_000, outputTokens: 1_000_000).total == Decimal(60))
+
+        // Headline selection: auto picks the most-consumed quota window; a pin overrides it.
+        let session = UsageLimit(group: "session", kind: "session", percent: 20, resetsAt: nil,
+            isActive: true, severity: "normal", scope: nil)
+        let weekly = UsageLimit(group: "weekly", kind: "weekly_all", percent: 60, resetsAt: nil,
+            isActive: false, severity: "normal", scope: nil)
+        let headSnap = UsageSnapshot(capturedAt: Date(), account: nil,
+            usage: UsageResponse(fiveHour: nil, sevenDay: nil, sevenDayOpus: nil, overage: nil,
+                                 limits: [session, weekly]))
+        check("headline auto = most used (weekly 60%)", headSnap.percentUsed(pinnedID: "") == 60)
+        check("headline pinned to session (20%)", headSnap.percentUsed(pinnedID: session.id) == 20)
+        check("pinned session → 80% remaining", headSnap.percentRemaining(pinnedID: session.id) == 80)
+        check("unknown pin falls back to auto", headSnap.percentUsed(pinnedID: "nope") == 60)
 
         // Prediction: a rising run should project exhaustion in the future.
         let base = Date(timeIntervalSince1970: 1_800_000_000)
@@ -326,6 +374,40 @@ struct CLI {
         check("token grand total incl. cache", tt.grandTotal == 1685)
         check("token message count", tt.messages == 2)
         check("entrypoint→source label", TokenSample.sourceName(entrypoint: "claude-vscode") == "Claude Code (VS Code)")
+
+        // Update checker: version comparison, highlight extraction, asset selection.
+        check("semver: 0.5.0 newer than 0.4.0", SemanticVersion.isNewer("0.5.0", than: "0.4.0"))
+        check("semver: v-prefix ignored", SemanticVersion.isNewer("v0.10.0", than: "0.9.9"))
+        check("semver: equal is not newer", !SemanticVersion.isNewer("0.4.0", than: "0.4.0"))
+        check("semver: older is not newer", !SemanticVersion.isNewer("0.3.9", than: "0.4.0"))
+        check("semver: 0.4.1 newer than 0.4", SemanticVersion.isNewer("0.4.1", than: "0.4"))
+        let rel = ReleaseInfo(
+            tagName: "v9.9.9", name: "Big one",
+            body: """
+            Intro paragraph, not a bullet.
+
+            - **Widget** — small/medium/large, see [docs](https://x.y/docs)
+            - `--serve` flag for Prometheus
+            not a bullet either
+            - Third change
+            - Fourth change
+            """,
+            htmlURL: URL(string: "https://github.com/JK-skt/claude-usage-monitor/releases/tag/v9.9.9"),
+            publishedAt: nil,
+            assets: [.init(name: "ClaudeUsageMonitor-9.9.9.dmg", size: 1,
+                           browserDownloadURL: URL(string: "https://github.com/x.dmg")!,
+                           contentType: "application/x-apple-diskimage")])
+        check("release version strips v", rel.version == "9.9.9")
+        check("highlights take bullets only", rel.highlights(max: 3).count == 3)
+        check("highlights strip markdown",
+              rel.highlights(max: 1).first == "Widget — small/medium/large, see docs")
+        check("dmg asset found", rel.dmgAsset?.name.hasSuffix(".dmg") == true)
+        // CRLF release bodies (GitHub often serves \r\n) must still yield highlights.
+        let crlf = ReleaseInfo(tagName: "v1.0.0", name: nil,
+            body: "Intro\r\n\r\n- First change\r\n- Second change\r\n",
+            htmlURL: nil, publishedAt: nil, assets: [])
+        check("highlights handle CRLF bodies", crlf.highlights(max: 2) == ["First change", "Second change"])
+        check("packaged version is not 0.0.0", AppVersion.packaged != "0.0.0" && !AppVersion.packaged.isEmpty)
 
         print(failures == 0 ? "\nAll checks passed." : "\n\(failures) check(s) FAILED.")
         return failures == 0
