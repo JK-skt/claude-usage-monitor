@@ -407,7 +407,7 @@ struct CLI {
             body: "Intro\r\n\r\n- First change\r\n- Second change\r\n",
             htmlURL: nil, publishedAt: nil, assets: [])
         check("highlights handle CRLF bodies", crlf.highlights(max: 2) == ["First change", "Second change"])
-        check("packaged version is not 0.0.0", AppVersion.packaged != "0.0.0" && !AppVersion.packaged.isEmpty)
+        check("packaged version is 0.5.0", AppVersion.packaged == "0.5.0")
 
         print(failures == 0 ? "\nAll checks passed." : "\n\(failures) check(s) FAILED.")
         return failures == 0
