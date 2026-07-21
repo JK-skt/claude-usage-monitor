@@ -39,12 +39,13 @@ enum Entry {
 struct ClaudeUsageMonitorApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var model = MenuBarViewModel()
+    @StateObject private var updates = UpdateManager()
 
     var body: some Scene {
         MenuBarExtra {
-            MenuContentView(model: model)
+            MenuContentView(model: model, updates: updates)
         } label: {
-            MenuBarLabel(state: model.state)
+            MenuBarLabel(state: model.state, pinnedID: model.headlineMetricID)
         }
         .menuBarExtraStyle(.window)
     }
@@ -61,6 +62,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 /// tinted by severity.
 struct MenuBarLabel: View {
     let state: MenuBarViewModel.State
+    /// User-pinned headline metric id ("" = auto / most-consumed).
+    var pinnedID: String = ""
 
     var body: some View {
         switch state {
@@ -69,8 +72,8 @@ struct MenuBarLabel: View {
         case .failed:
             Image(systemName: "exclamationmark.triangle")
         case .loaded(let snapshot):
-            Text("Claude \(snapshot.percentRemaining)%")
-                .foregroundStyle(color(for: snapshot.severity))
+            Text("Claude \(snapshot.percentRemaining(pinnedID: pinnedID))%")
+                .foregroundStyle(color(for: snapshot.severity(pinnedID: pinnedID)))
                 .monospacedDigit()
         }
     }

@@ -35,6 +35,21 @@ final class MenuBarViewModel: ObservableObject {
         didSet { UserDefaults.standard.set(detailed, forKey: Self.detailedKey) }
     }
 
+    /// Which metric drives the headline (menu-bar %, hero gauge, trend). Empty string =
+    /// "auto" (the most-consumed quota window). Otherwise a specific metric `id`
+    /// (e.g. the 5-hour session), letting the user pin the main display to one window.
+    @Published var headlineMetricID: String {
+        didSet {
+            guard headlineMetricID != oldValue else { return }
+            UserDefaults.standard.set(headlineMetricID, forKey: Self.headlineKey)
+            // Keep the widget in sync with the app's chosen main window.
+            shared.saveHeadlinePin(headlineMetricID)
+            #if canImport(WidgetKit)
+            WidgetCenter.shared.reloadAllTimelines()
+            #endif
+        }
+    }
+
     /// Forecast (burn rate / projected exhaustion) from recent history.
     @Published private(set) var prediction: UsagePrediction?
 
@@ -62,6 +77,7 @@ final class MenuBarViewModel: ObservableObject {
 
     private static let intervalKey = "refresh.interval"
     private static let detailedKey = "menu.detailed"
+    private static let headlineKey = "headline.metricID"
 
     private let repository: UsageRepositoryProtocol
     private let history = UsageHistoryStore()
@@ -74,6 +90,7 @@ final class MenuBarViewModel: ObservableObject {
     init(repository: UsageRepositoryProtocol = UsageRepository()) {
         self.repository = repository
         self.detailed = UserDefaults.standard.bool(forKey: Self.detailedKey)
+        self.headlineMetricID = UserDefaults.standard.string(forKey: Self.headlineKey) ?? ""
         let saved = UserDefaults.standard.double(forKey: Self.intervalKey)
         self.refreshInterval = saved > 0 ? saved : 300 // 5 minutes default
         notifications.requestAuthorization()
@@ -120,6 +137,7 @@ final class MenuBarViewModel: ObservableObject {
             prediction = UsagePredictor.predict(recent)
             recentHistory = Array(recent.suffix(60))
             shared.save(snapshot)
+            shared.saveHeadlinePin(headlineMetricID)
             notifications.evaluate(snapshot)
             #if canImport(WidgetKit)
             WidgetCenter.shared.reloadAllTimelines()
