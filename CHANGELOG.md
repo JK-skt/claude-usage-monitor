@@ -5,6 +5,32 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-07-23
+
+### Added
+
+- **In-menu usage analytics.** A collapsible "사용 분석" section in the menu popover,
+  built from local Claude Code session logs (`~/.claude/projects`), with a **전체 / 30일 /
+  7일** range filter and two sub-tabs:
+  - **개요** — stat tiles (sessions, messages, total tokens, active days, current/longest
+    streak, peak hour, favorite model) plus a GitHub-style activity heatmap.
+  - **모델** — a per-day stacked token bar chart and a per-model breakdown (input/output
+    and share of total).
+  - A Settings toggle ("상세 사용 분석") shows/hides the section.
+  - `ModelDisplayName` maps raw model ids (`claude-fable-5` → "Fable 5"); analytics are
+    computed on the `TokenUsageReader` actor (off the main thread).
+- **CLI:** `claude-monitor --analytics [all|30|7]` (with `--json`) prints the same report.
+
+### Changed
+
+- Analytics render entirely with hand-drawn views (no Swift Charts dependency), sized for
+  the 320-pt menu popover.
+
+### Fixed
+
+- Removed a crash when opening the model view: Swift Charts trapped
+  (`EXC_BREAKPOINT`) on some real datasets; the chart is now hand-drawn.
+
 ## [0.5.0] - 2026-07-21
 
 ### Added
@@ -77,6 +103,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`--json`, `--raw`, `--selftest`).
 - `.app` bundle + generated icon + DMG packaging, and Launch-at-login via `SMAppService`.
 
+[0.6.0]: https://github.com/JK-skt/claude-usage-monitor/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/JK-skt/claude-usage-monitor/compare/v0.4.0...v0.5.0
 [0.2.0]: https://github.com/JK-skt/claude-usage-monitor/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/JK-skt/claude-usage-monitor/releases/tag/v0.1.0

@@ -7,6 +7,7 @@ struct MenuContentView: View {
     @ObservedObject var updates: UpdateManager
     @StateObject private var loginItem = LoginItemManager()
     @State private var showSettings = false
+    @State private var showAnalytics = false
     @State private var loginError: String?
 
     private let intervals: [(String, TimeInterval)] = [
@@ -394,6 +395,27 @@ struct MenuContentView: View {
                 chip("Claude", "safari") { open("https://claude.ai") }
             }
 
+            if model.analyticsEnabled {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) { showAnalytics.toggle() }
+                } label: {
+                    HStack {
+                        Image(systemName: "chart.bar.xaxis").frame(width: 16)
+                        Text("사용 분석")
+                        Spacer()
+                        Image(systemName: showAnalytics ? "chevron.up" : "chevron.down")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                if showAnalytics {
+                    AnalyticsSection()
+                        .padding(.leading, 4).padding(.trailing, 2).padding(.top, 2)
+                }
+            }
+
             Button {
                 withAnimation(.easeInOut(duration: 0.15)) { showSettings.toggle() }
             } label: {
@@ -441,6 +463,9 @@ struct MenuContentView: View {
             }
 
             Toggle(isOn: $model.detailed) { Text("Show all details") }
+                .toggleStyle(.switch).controlSize(.small)
+
+            Toggle(isOn: $model.analyticsEnabled) { Text("상세 사용 분석") }
                 .toggleStyle(.switch).controlSize(.small)
 
             // Which window drives the headline % (menu bar, gauge, trend).

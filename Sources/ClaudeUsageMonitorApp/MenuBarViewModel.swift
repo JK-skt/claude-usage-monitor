@@ -35,6 +35,12 @@ final class MenuBarViewModel: ObservableObject {
         didSet { UserDefaults.standard.set(detailed, forKey: Self.detailedKey) }
     }
 
+    /// When true, an "사용 분석…" entry point (detailed analytics window) is shown.
+    /// Defaults on; gated so users who don't want log scanning can hide it.
+    @Published var analyticsEnabled: Bool {
+        didSet { UserDefaults.standard.set(analyticsEnabled, forKey: Self.analyticsKey) }
+    }
+
     /// Which metric drives the headline (menu-bar %, hero gauge, trend). Empty string =
     /// "auto" (the most-consumed quota window). Otherwise a specific metric `id`
     /// (e.g. the 5-hour session), letting the user pin the main display to one window.
@@ -78,6 +84,7 @@ final class MenuBarViewModel: ObservableObject {
     private static let intervalKey = "refresh.interval"
     private static let detailedKey = "menu.detailed"
     private static let headlineKey = "headline.metricID"
+    private static let analyticsKey = "menu.analyticsEnabled"
 
     private let repository: UsageRepositoryProtocol
     private let history = UsageHistoryStore()
@@ -90,6 +97,7 @@ final class MenuBarViewModel: ObservableObject {
     init(repository: UsageRepositoryProtocol = UsageRepository()) {
         self.repository = repository
         self.detailed = UserDefaults.standard.bool(forKey: Self.detailedKey)
+        self.analyticsEnabled = UserDefaults.standard.object(forKey: Self.analyticsKey) as? Bool ?? true
         self.headlineMetricID = UserDefaults.standard.string(forKey: Self.headlineKey) ?? ""
         let saved = UserDefaults.standard.double(forKey: Self.intervalKey)
         self.refreshInterval = saved > 0 ? saved : 300 // 5 minutes default
