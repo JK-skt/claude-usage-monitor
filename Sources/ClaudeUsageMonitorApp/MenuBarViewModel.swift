@@ -35,8 +35,8 @@ final class MenuBarViewModel: ObservableObject {
         didSet { UserDefaults.standard.set(detailed, forKey: Self.detailedKey) }
     }
 
-    /// When true, an "사용 분석…" entry point (detailed analytics window) is shown.
-    /// Defaults on; gated so users who don't want log scanning can hide it.
+    /// When true, the Analytics tab includes the detailed log-derived analytics
+    /// (sessions, streaks, heatmap). Defaults on; off skips scanning session logs.
     @Published var analyticsEnabled: Bool {
         didSet { UserDefaults.standard.set(analyticsEnabled, forKey: Self.analyticsKey) }
     }
@@ -59,21 +59,17 @@ final class MenuBarViewModel: ObservableObject {
     /// Forecast (burn rate / projected exhaustion) from recent history.
     @Published private(set) var prediction: UsagePrediction?
 
+    /// True when the quota is projected to run out *before* it resets — the state the
+    /// Overview tab warns about.
+    var runsOutBeforeReset: Bool {
+        guard let out = prediction?.exhaustionAt,
+              case .loaded(let snapshot) = state,
+              let reset = snapshot.nextReset else { return false }
+        return out < reset
+    }
+
     /// Recent usage samples (used% over time) for the in-menu sparkline.
     @Published private(set) var recentHistory: [UsageRecord] = []
-
-    /// Token usage from local Claude Code session logs (by app/source), loaded lazily.
-    @Published private(set) var tokenReport: TokenReport?
-    private let tokenReader = TokenUsageReader()
-    private var tokensLoadedAt: Date?
-
-    /// Loads the token report when the menu opens, at most once every few minutes
-    /// (scanning session logs is I/O — don't do it on every background poll).
-    func loadTokens(force: Bool = false) async {
-        if !force, let t = tokensLoadedAt, Date().timeIntervalSince(t) < 180 { return }
-        tokenReport = await tokenReader.report(windowDays: 7)
-        tokensLoadedAt = Date()
-    }
 
     /// Threshold-alert toggle, surfaced in Settings.
     var notificationsEnabled: Bool {
@@ -94,15 +90,29 @@ final class MenuBarViewModel: ObservableObject {
     private var consecutiveFailures = 0
     private var retryAfterHint: TimeInterval?
 
-    init(repository: UsageRepositoryProtocol = UsageRepository()) {
+    /// `previewMode` skips notification authorization and background polling — required
+    /// for the headless `--render-preview` QA path, which has no app bundle.
+    init(repository: UsageRepositoryProtocol = UsageRepository(), previewMode: Bool = false) {
         self.repository = repository
         self.detailed = UserDefaults.standard.bool(forKey: Self.detailedKey)
         self.analyticsEnabled = UserDefaults.standard.object(forKey: Self.analyticsKey) as? Bool ?? true
         self.headlineMetricID = UserDefaults.standard.string(forKey: Self.headlineKey) ?? ""
         let saved = UserDefaults.standard.double(forKey: Self.intervalKey)
         self.refreshInterval = saved > 0 ? saved : 300 // 5 minutes default
+        guard !previewMode else { return }
         notifications.requestAuthorization()
         start()
+    }
+
+    /// QA/preview only: seed the view model with fixture data and stop polling so the
+    /// rendered output is deterministic.
+    func applyFixture(snapshot: UsageSnapshot, prediction: UsagePrediction?, history: [UsageRecord]) {
+        pollTask?.cancel()
+        state = .loaded(snapshot)
+        lastUpdated = snapshot.capturedAt
+        lastError = nil
+        self.prediction = prediction
+        self.recentHistory = history
     }
 
     /// (Re)starts the background poll loop with adaptive spacing.

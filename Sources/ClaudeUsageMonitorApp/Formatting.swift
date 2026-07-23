@@ -12,18 +12,42 @@ enum Formatting {
         return "in \(minutes)m"
     }
 
+    /// The UI is English throughout (handoff §00), so dates render in English too —
+    /// otherwise a Korean system locale yields "오후 3:33" inside English labels, and the
+    /// forecast strip's number/meridiem split breaks.
+    static let displayLocale = Locale(identifier: "en_US")
+
     static func absolute(_ date: Date?) -> String {
         guard let date else { return "—" }
         let f = DateFormatter()
+        f.locale = displayLocale
         f.dateStyle = .medium
         f.timeStyle = .short
         return f.string(from: date)
     }
 
+    /// "3:33 PM"
     static func time(_ date: Date?) -> String {
         guard let date else { return "—" }
         let f = DateFormatter()
+        f.locale = displayLocale
         f.timeStyle = .short
+        return f.string(from: date)
+    }
+
+    /// Short weekday, e.g. "Thu".
+    static func weekday(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.locale = displayLocale
+        f.setLocalizedDateFormatFromTemplate("E")
+        return f.string(from: date)
+    }
+
+    /// Axis label: clock time, or a date for multi-day spans.
+    static func axis(_ date: Date, longSpan: Bool) -> String {
+        let f = DateFormatter()
+        f.locale = displayLocale
+        f.setLocalizedDateFormatFromTemplate(longSpan ? "MMMd" : "jmm")
         return f.string(from: date)
     }
 

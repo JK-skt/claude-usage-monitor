@@ -29,105 +29,51 @@ final class AnalyticsViewModel: ObservableObject {
     }
 }
 
-/// Compact, in-menu usage analytics — designed for the 320-pt menu-bar popover. An "개요"
-/// (overview) sub-tab with stat tiles + an activity heatmap, and a "모델" (models) sub-tab
-/// with a per-day token chart. Data comes from local Claude Code session logs.
-struct AnalyticsSection: View {
-    @StateObject private var model = AnalyticsViewModel()
-    @State private var tab: Tab = .overview
-
-    enum Tab: String, CaseIterable { case overview = "개요", models = "모델" }
+/// Stat tiles + activity heatmap for a computed range — the "Stats" view of the
+/// Analytics tab. Restored from 0.6.0; rendered only when "Detailed usage analytics" is on.
+struct DetailedStatsView: View {
+    let a: UsageAnalytics
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            controls
-
-            if let a = model.analytics {
-                if a.isEmpty {
-                    emptyState
-                } else {
-                    switch tab {
-                    case .overview: overview(a)
-                    case .models:   models(a)
-                    }
-                }
-            } else {
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.mini)
-                    Text("분석 중…").font(.caption).foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .center).padding(.vertical, 6)
-            }
-        }
-        .onAppear { model.reloadIfNeeded() }
-    }
-
-    // MARK: Controls (tabs + range)
-
-    private var controls: some View {
-        HStack(spacing: 6) {
-            ForEach(Tab.allCases, id: \.self) { t in
-                Button(t.rawValue) { tab = t }
-                    .buttonStyle(SegmentButtonStyle(selected: tab == t))
-            }
-            Spacer()
-            ForEach(AnalyticsRange.allCases, id: \.self) { r in
-                Button(r.label) { model.range = r }
-                    .buttonStyle(SegmentButtonStyle(selected: model.range == r))
-            }
-            if model.isLoading { ProgressView().controlSize(.mini) }
-        }
-    }
-
-    private var emptyState: some View {
-        VStack(spacing: 4) {
-            Text("이 기간에 기록된 사용량이 없습니다")
-                .font(.caption).foregroundStyle(.secondary)
-            Text("Claude Code 세션 로그 기반")
-                .font(.system(size: 9)).foregroundStyle(.tertiary)
-        }
-        .frame(maxWidth: .infinity).padding(.vertical, 8)
-    }
-
-    // MARK: Overview
-
-    private func overview(_ a: UsageAnalytics) -> some View {
         let cols = Array(repeating: GridItem(.flexible(), spacing: 6), count: 2)
-        return VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
             LazyVGrid(columns: cols, spacing: 6) {
-                StatTile(label: "세션", value: AnalyticsFormat.grouped(a.sessions))
-                StatTile(label: "메시지", value: AnalyticsFormat.grouped(a.messages))
-                StatTile(label: "총 토큰", value: AnalyticsFormat.compact(a.totalTokens))
-                StatTile(label: "활성 일수", value: "\(a.activeDays)")
-                StatTile(label: "현재 연속", value: "\(a.currentStreak)일")
-                StatTile(label: "최장 연속", value: "\(a.longestStreak)일")
-                StatTile(label: "최다 사용 시간", value: a.peakHour.map(AnalyticsFormat.hour) ?? "—")
-                StatTile(label: "즐겨 쓴 모델", value: a.favoriteModel ?? "—")
+                StatTile(label: "Sessions", value: AnalyticsFormat.grouped(a.sessions))
+                StatTile(label: "Messages", value: AnalyticsFormat.grouped(a.messages))
+                StatTile(label: "Total tokens", value: AnalyticsFormat.compact(a.totalTokens))
+                StatTile(label: "Active days", value: "\(a.activeDays)")
+                StatTile(label: "Current streak", value: "\(a.currentStreak)d")
+                StatTile(label: "Longest streak", value: "\(a.longestStreak)d")
+                StatTile(label: "Peak hour", value: a.peakHour.map(AnalyticsFormat.hour) ?? "—")
+                StatTile(label: "Top model", value: a.favoriteModel ?? "—")
             }
             Heatmap(cells: a.heatmap)
         }
     }
+}
 
-    // MARK: Models
+/// Per-day stacked token chart + model breakdown — the "Models" view of the Analytics tab.
+struct DetailedModelsView: View {
+    let a: UsageAnalytics
 
-    private func models(_ a: UsageAnalytics) -> some View {
+    var body: some View {
         let order = a.models.map(\.name)
         let palette = AnalyticsFormat.palette(for: order)
         let colorMap = Dictionary(uniqueKeysWithValues: zip(order, palette))
-        return VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
             StackedBarChart(daily: a.daily, order: order, colors: colorMap)
-                .frame(height: 132)
-            VStack(spacing: 5) {
-                ForEach(Array(zip(a.models, palette)), id: \.0.id) { usage, color in
+                .frame(height: 110)
+            VStack(spacing: 4) {
+                ForEach(Array(zip(a.models.prefix(4), palette)), id: \.0.id) { usage, color in
                     HStack(spacing: 7) {
                         RoundedRectangle(cornerRadius: 2).fill(color).frame(width: 9, height: 9)
-                        Text(usage.name).font(.caption)
+                        Text(usage.name).font(.system(size: 10.5))
                         Spacer()
                         Text("\(AnalyticsFormat.compact(usage.input))·\(AnalyticsFormat.compact(usage.output))")
-                            .font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
+                            .font(.system(size: 9)).foregroundStyle(.tertiary).monospacedDigit()
                         Text(AnalyticsFormat.percent(usage.fraction))
-                            .font(.caption).bold().monospacedDigit()
-                            .frame(width: 46, alignment: .trailing)
+                            .font(.system(size: 10, weight: .semibold)).monospacedDigit()
+                            .frame(width: 44, alignment: .trailing)
                     }
                 }
             }
@@ -137,7 +83,7 @@ struct AnalyticsSection: View {
 
 // MARK: - Compact stat tile
 
-private struct StatTile: View {
+struct StatTile: View {
     let label: String
     let value: String
     var body: some View {
@@ -152,7 +98,7 @@ private struct StatTile: View {
 }
 
 /// GitHub-style activity grid: 7 rows (weekdays) × N week columns, colored by intensity.
-private struct Heatmap: View {
+struct Heatmap: View {
     let cells: [HeatCell]
     private let cell: CGFloat = 11
     private let gap: CGFloat = 3
@@ -188,7 +134,7 @@ private struct Heatmap: View {
 /// A dependency-free stacked bar chart of daily tokens, split by model. One column per
 /// active day (horizontally scrollable when there are many), with a Y grid + axis labels.
 /// Hand-drawn on purpose — Swift Charts trapped on some real datasets.
-private struct StackedBarChart: View {
+struct StackedBarChart: View {
     let daily: [DailyModelTokens]
     let order: [String]              // model stacking order (bottom → top)
     let colors: [String: Color]
@@ -322,11 +268,10 @@ enum AnalyticsFormat {
 
     static func percent(_ f: Double) -> String { String(format: "%.1f%%", f * 100) }
 
-    /// 11 → "오전 11시", 0 → "오전 12시", 13 → "오후 1시".
+    /// 11 → "11 AM", 0 → "12 AM", 13 → "1 PM".
     static func hour(_ h: Int) -> String {
-        let am = h < 12
         let twelve = h % 12 == 0 ? 12 : h % 12
-        return "\(am ? "오전" : "오후") \(twelve)시"
+        return "\(twelve) \(h < 12 ? "AM" : "PM")"
     }
 
     static func dayTooltip(_ c: HeatCell) -> String {
@@ -338,9 +283,9 @@ enum AnalyticsFormat {
         return f.string(from: d)
     }
 
-    /// Short axis date, e.g. "7월 21일".
+    /// Short axis date, e.g. "Jul 21".
     static func axisDate(_ d: Date) -> String {
-        let f = DateFormatter(); f.locale = Locale(identifier: "ko_KR"); f.dateFormat = "M월 d일"
+        let f = DateFormatter(); f.setLocalizedDateFormatFromTemplate("MMMd")
         return f.string(from: d)
     }
 

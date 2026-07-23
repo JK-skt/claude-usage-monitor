@@ -453,7 +453,7 @@ struct CLI {
             body: "Intro\r\n\r\n- First change\r\n- Second change\r\n",
             htmlURL: nil, publishedAt: nil, assets: [])
         check("highlights handle CRLF bodies", crlf.highlights(max: 2) == ["First change", "Second change"])
-        check("packaged version is 0.6.0", AppVersion.packaged == "0.6.0")
+        check("packaged version is 0.7.0", AppVersion.packaged == "0.7.0")
 
         // Analytics engine.
         check("model display name: fable", ModelDisplayName.pretty("claude-fable-5") == "Fable 5")

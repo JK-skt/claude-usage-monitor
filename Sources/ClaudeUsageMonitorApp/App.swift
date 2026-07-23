@@ -22,6 +22,11 @@ enum Entry {
             catch { FileHandle.standardError.write(Data("unregister failed: \(error)\n".utf8)); exit(1) }
             exit(0)
         }
+        if let i = args.firstIndex(of: "--render-preview"), i + 1 < args.count {
+            let dir = args[i + 1]
+            MainActor.assumeIsolated { PreviewRenderer.run(outputDir: dir) }
+            exit(0)
+        }
         ClaudeUsageMonitorApp.main()
     }
 

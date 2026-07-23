@@ -12,7 +12,9 @@ final class NotificationManager {
     /// Most severe threshold already alerted this cycle (nil = none yet).
     private var lastAlerted: Int?
     private var authorized = false
-    private let center = UNUserNotificationCenter.current()
+    /// Resolved on demand — `UNUserNotificationCenter.current()` raises when the process
+    /// has no app bundle (e.g. the headless `--render-preview` QA path).
+    private var center: UNUserNotificationCenter { UNUserNotificationCenter.current() }
 
     /// Whether the user has enabled threshold alerts (persisted).
     var enabled: Bool {
