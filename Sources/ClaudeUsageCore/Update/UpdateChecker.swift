@@ -8,7 +8,7 @@ public enum AppVersion {
     /// pipeline's single source of truth). Used as the fallback for the bare CLI binary,
     /// which has no Info.plist — without it, version comparison would read "0.0.0" and
     /// treat *every* release as newer.
-    public static let packaged = "0.4.0"
+    public static let packaged = "0.6.0"
 
     /// This build's version: the bundle's `CFBundleShortVersionString` when running as a
     /// `.app`, otherwise the compiled `packaged` value.

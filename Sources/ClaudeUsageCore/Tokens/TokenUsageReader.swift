@@ -35,9 +35,13 @@ public struct TokenSample: Sendable {
     public let output: Int
     public let cacheCreation: Int
     public let cacheRead: Int
+    /// The conversation/session this sample belongs to (log `sessionId`, else the log
+    /// file's name) — used to count distinct sessions in analytics.
+    public let sessionID: String?
 
     public init(timestamp: Date, model: String?, project: String?, source: String,
-                input: Int, output: Int, cacheCreation: Int, cacheRead: Int) {
+                input: Int, output: Int, cacheCreation: Int, cacheRead: Int,
+                sessionID: String? = nil) {
         self.timestamp = timestamp
         self.model = model
         self.project = project
@@ -46,6 +50,7 @@ public struct TokenSample: Sendable {
         self.output = output
         self.cacheCreation = cacheCreation
         self.cacheRead = cacheRead
+        self.sessionID = sessionID
     }
 
     /// Maps a Claude Code `entrypoint` to a human-readable application/source label.
@@ -91,6 +96,19 @@ public actor TokenUsageReader {
         self.projectsDir = projectsDir
             ?? FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent(".claude/projects", isDirectory: true)
+    }
+
+    /// Raw samples for an analytics range (`nil` days = all history), then folded into a
+    /// full ``UsageAnalytics`` report. Reading + aggregation both run on this actor,
+    /// off the main thread.
+    public func analytics(range: AnalyticsRange, now: Date = Date()) -> UsageAnalytics {
+        let cal = Calendar.current
+        let since: Date? = range.days.map {
+            let start = cal.startOfDay(for: now)
+            return cal.date(byAdding: .day, value: -($0 - 1), to: start) ?? start
+        }
+        let samples = readSamples(since: since)
+        return UsageAnalyticsBuilder.build(from: samples, range: range, now: now, calendar: cal)
     }
 
     public func report(now: Date = Date(), windowDays: Int = 7) -> TokenReport {
@@ -172,6 +190,10 @@ public actor TokenUsageReader {
 
                 func i(_ k: String) -> Int { (usage[k] as? Int) ?? 0 }
                 let cwd = obj["cwd"] as? String
+                // Session identity: the log's own sessionId, else the file name (each
+                // Claude Code transcript file is one session).
+                let sessionID = (obj["sessionId"] as? String)
+                    ?? (rel as NSString).lastPathComponent.replacingOccurrences(of: ".jsonl", with: "")
                 out.append(TokenSample(
                     timestamp: ts,
                     model: message["model"] as? String,
@@ -180,7 +202,8 @@ public actor TokenUsageReader {
                     input: i("input_tokens"),
                     output: i("output_tokens"),
                     cacheCreation: i("cache_creation_input_tokens"),
-                    cacheRead: i("cache_read_input_tokens")
+                    cacheRead: i("cache_read_input_tokens"),
+                    sessionID: sessionID
                 ))
             }
         }

@@ -10,6 +10,7 @@ struct CLI {
         if args.contains("--help") || args.contains("-h") { printUsage(); return 0 }
         if args.contains("--selftest") { return runSelfTest() ? 0 : 1 }
         if args.contains("--check-update") { return await runCheckUpdate(args) }
+        if args.contains("--analytics") { return await runAnalytics(args) }
         if args.contains("--raw") { return await runRaw() }
         if args.contains("--tokens") { return await runTokens(args) }
         if args.contains("--history") { return await runHistory(args) }
@@ -31,6 +32,50 @@ struct CLI {
     }
 
     // MARK: Commands
+
+    static func runAnalytics(_ args: [String]) async -> Int32 {
+        let range: AnalyticsRange = {
+            switch stringArg(args, after: "--analytics") {
+            case "7", "7d": return .sevenDays
+            case "30", "30d": return .thirtyDays
+            default: return .all
+            }
+        }()
+        let a = await TokenUsageReader().analytics(range: range)
+        if args.contains("--json") { printEncodable(a); return 0 }
+
+        func c(_ n: Int) -> String { AnalyticsFormatCLI.compact(n) }
+        print("Usage analytics (\(range.label)) — from local Claude Code session logs")
+        if a.isEmpty { print("  (no usage recorded in this range)"); return 0 }
+        print("  Sessions        \(a.sessions)")
+        print("  Messages        \(AnalyticsFormatCLI.grouped(a.messages))")
+        print("  Total tokens    \(c(a.totalTokens))  (input+output)")
+        print("  Active days     \(a.activeDays)")
+        print("  Current streak  \(a.currentStreak)d   Longest \(a.longestStreak)d")
+        if let h = a.peakHour { print("  Peak hour       \(h):00") }
+        if let m = a.favoriteModel { print("  Favorite model  \(m)") }
+        if !a.models.isEmpty {
+            print("  By model:")
+            for m in a.models {
+                print("    \(pad(m.name, 12)) \(pad(c(m.input), 8)) in · \(pad(c(m.output), 8)) out  \(String(format: "%.1f%%", m.fraction * 100))")
+            }
+        }
+        return 0
+    }
+
+    /// Compact/grouped number formatting for the CLI analytics view.
+    enum AnalyticsFormatCLI {
+        static func compact(_ n: Int) -> String {
+            let d = Double(n)
+            if d >= 1_000_000 { return String(format: "%.1fM", d / 1_000_000) }
+            if d >= 1_000 { return String(format: "%.1fK", d / 1_000) }
+            return "\(n)"
+        }
+        static func grouped(_ n: Int) -> String {
+            let f = NumberFormatter(); f.numberStyle = .decimal
+            return f.string(from: NSNumber(value: n)) ?? "\(n)"
+        }
+    }
 
     static func runCheckUpdate(_ args: [String]) async -> Int32 {
         // Bare SPM binaries have no Info.plist; allow an explicit current version.
@@ -297,6 +342,7 @@ struct CLI {
           claude-monitor --serve [port]  Prometheus + REST server (default 9090)
                                          /metrics /usage /history /status
           claude-monitor --tokens [days] Token counts from local session logs (default 7d)
+          claude-monitor --analytics [all|30|7]  Usage analytics (+ --json)
           claude-monitor --raw           Raw /api/oauth/usage body
           claude-monitor --check-update  Check GitHub for a newer release
                                          (--current X.Y.Z to override; exit 10 = update)
@@ -407,7 +453,36 @@ struct CLI {
             body: "Intro\r\n\r\n- First change\r\n- Second change\r\n",
             htmlURL: nil, publishedAt: nil, assets: [])
         check("highlights handle CRLF bodies", crlf.highlights(max: 2) == ["First change", "Second change"])
-        check("packaged version is not 0.0.0", AppVersion.packaged != "0.0.0" && !AppVersion.packaged.isEmpty)
+        check("packaged version is 0.6.0", AppVersion.packaged == "0.6.0")
+
+        // Analytics engine.
+        check("model display name: fable", ModelDisplayName.pretty("claude-fable-5") == "Fable 5")
+        check("model display name: opus", ModelDisplayName.pretty("claude-opus-4-8") == "Opus 4.8")
+        check("model display name: dated", ModelDisplayName.pretty("claude-sonnet-4-6-20250219") == "Sonnet 4.6")
+        do {
+            let cal = Calendar(identifier: .gregorian)
+            let now = Date(timeIntervalSince1970: 1_700_000_000) // fixed
+            func day(_ offset: Int, _ model: String, _ inn: Int, _ out: Int, sid: String) -> TokenSample {
+                let ts = cal.date(byAdding: .day, value: offset, to: now)!
+                return TokenSample(timestamp: ts, model: model, project: "p", source: "Claude Code",
+                                   input: inn, output: out, cacheCreation: 0, cacheRead: 0, sessionID: sid)
+            }
+            let samples = [
+                day(0, "claude-fable-5", 100, 200, sid: "s1"),
+                day(0, "claude-opus-4-8", 50, 10, sid: "s1"),
+                day(-1, "claude-fable-5", 300, 100, sid: "s2"),
+                day(-2, "claude-fable-5", 10, 5, sid: "s3"),
+            ]
+            let a = UsageAnalyticsBuilder.build(from: samples, range: .all, now: now, calendar: cal)
+            check("analytics total tokens = in+out", a.totalTokens == 100+200+50+10+300+100+10+5)
+            check("analytics sessions distinct", a.sessions == 3)
+            check("analytics messages", a.messages == 4)
+            check("analytics active days = 3", a.activeDays == 3)
+            check("analytics current streak = 3", a.currentStreak == 3)
+            check("analytics favorite = Fable 5", a.favoriteModel == "Fable 5")
+            check("analytics model fractions sum ~1",
+                  abs(a.models.map(\.fraction).reduce(0, +) - 1.0) < 0.001)
+        }
 
         print(failures == 0 ? "\nAll checks passed." : "\n\(failures) check(s) FAILED.")
         return failures == 0
