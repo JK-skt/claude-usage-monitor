@@ -86,6 +86,17 @@ public struct TokenReport: Sendable, Codable {
     public let byDay: [NamedTotals]
 }
 
+/// Token totals over an arbitrary recent window (hours), split by model and by source.
+/// Backs the Analytics tab's 5h / 24h / 7d segments.
+public struct TokenBreakdown: Sendable, Codable {
+    public let hours: Double
+    public let total: TokenTotals
+    public let byModel: [NamedTotals]
+    public let bySource: [NamedTotals]
+
+    public var isEmpty: Bool { total.messages == 0 }
+}
+
 /// Reads Claude Code's local session transcripts (`~/.claude/projects/**/*.jsonl`) and
 /// aggregates real token usage. This is a *different* data source from the usage API
 /// (which reports only percentages/dollars, never token counts).
@@ -96,6 +107,29 @@ public actor TokenUsageReader {
         self.projectsDir = projectsDir
             ?? FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent(".claude/projects", isDirectory: true)
+    }
+
+    /// Token totals over the last `hours`, grouped by model and by originating app.
+    /// Hour-granular (unlike ``report(now:windowDays:)``) so the UI can offer 5h / 24h / 7d.
+    public func breakdown(hours: Double, now: Date = Date()) -> TokenBreakdown {
+        let since = now.addingTimeInterval(-hours * 3600)
+        let samples = readSamples(since: since).filter { $0.timestamp >= since }
+
+        var total = TokenTotals()
+        var models: [String: TokenTotals] = [:]
+        var sources: [String: TokenTotals] = [:]
+        for s in samples {
+            total.add(s)
+            models[ModelDisplayName.pretty(s.model), default: TokenTotals()].add(s)
+            sources[s.source, default: TokenTotals()].add(s)
+        }
+        func ranked(_ d: [String: TokenTotals]) -> [NamedTotals] {
+            d.map { NamedTotals(name: $0.key, totals: $0.value) }
+                .filter { $0.totals.grandTotal > 0 }
+                .sorted { $0.totals.inputPlusOutput > $1.totals.inputPlusOutput }
+        }
+        return TokenBreakdown(hours: hours, total: total,
+                              byModel: ranked(models), bySource: ranked(sources))
     }
 
     /// Raw samples for an analytics range (`nil` days = all history), then folded into a

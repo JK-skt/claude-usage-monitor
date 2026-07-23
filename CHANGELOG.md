@@ -5,6 +5,49 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-07-23
+
+### Added
+
+- **Tabbed menu (Overview / Analytics / Settings).** The popover is reorganized from
+  stacked accordions into three tabs, following the Claude Design handoff. It sizes itself
+  to whichever tab is showing — nothing is clipped and nothing scrolls.
+- **Forecast promoted to first-class information.** A Burn rate / Runs out / Reset strip on
+  Overview, with the "Runs out" stat tinted orange (and a hero warning) when the quota is
+  projected to run out *before* it resets.
+- **Usage forecast chart** in Analytics: measured history as a line + area, continued by a
+  dashed projection to the exhaustion point, with a 100% limit rule and a reset marker. The
+  5h / 24h / 7d segment drives both this chart and the token breakdown.
+- **Token breakdowns by model and by source** for the selected window, plus **Export CSV**
+  (`UsageCSV`) and an Open Grafana action. `TokenUsageReader.breakdown(hours:)` supports
+  hour-granular windows.
+- **Settings grouped** into GENERAL / DISPLAY / NOTIFICATIONS / UPDATES, with About
+  (version, license, source) pinned below.
+- **QA render harness**: `ClaudeUsageMonitor --render-preview <dir>` renders each tab to
+  PNG from fixtures, so layout regressions can be caught without opening the menu bar.
+
+### Changed
+
+- **"used" is now the single mental model**: every bar's fill, number, and color move the
+  same direction (`63% used`). Only the hero ring keeps "% left".
+- Detailed log-derived analytics (sessions, streaks, heatmap, per-day model chart) moved
+  into the Analytics tab as Stats / Models sections, gated by "Detailed usage analytics".
+- Dates and times render in English throughout, matching the rest of the UI.
+- The update banner is a single line; release notes open on demand.
+
+### Fixed
+
+- "Show all details" had become a no-op — the DETAILS block (account, organization, tier,
+  billing, overage, captured) is restored.
+- Korean system locales leaked into an otherwise-English UI (`오후 3:33`, `resets 일`), and
+  broke the forecast strip's number/meridiem split so the meridiem was emphasized instead
+  of the time.
+- Settings switches rendered flush against their labels instead of right-aligned; the
+  refresh-interval chips were ungrouped.
+- The forecast chart drew flush to its frame, clipping the 100% rule and end markers.
+- `UNUserNotificationCenter` was resolved eagerly, raising when the process has no app
+  bundle (headless runs).
+
 ## [0.6.0] - 2026-07-23
 
 ### Added
@@ -103,6 +146,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`--json`, `--raw`, `--selftest`).
 - `.app` bundle + generated icon + DMG packaging, and Launch-at-login via `SMAppService`.
 
+[0.7.0]: https://github.com/JK-skt/claude-usage-monitor/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/JK-skt/claude-usage-monitor/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/JK-skt/claude-usage-monitor/compare/v0.4.0...v0.5.0
 [0.2.0]: https://github.com/JK-skt/claude-usage-monitor/compare/v0.1.0...v0.2.0

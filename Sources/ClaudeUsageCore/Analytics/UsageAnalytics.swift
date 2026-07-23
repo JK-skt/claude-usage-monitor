@@ -40,9 +40,9 @@ public enum AnalyticsRange: String, Sendable, CaseIterable, Codable {
 
     public var label: String {
         switch self {
-        case .all: return "전체"
-        case .thirtyDays: return "30일"
-        case .sevenDays: return "7일"
+        case .all: return "All"
+        case .thirtyDays: return "30d"
+        case .sevenDays: return "7d"
         }
     }
 }
